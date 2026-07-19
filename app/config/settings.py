@@ -45,6 +45,12 @@ class Settings(BaseSettings):
         le=2.0,
         description="Temperature cho LLM (0.0 = deterministic, 2.0 = creative).",
     )
+    llm_top_p: float = Field(
+        default=0.9,
+        ge=0.0,
+        le=1.0,
+        description="Nucleus sampling — chỉ lấy các token có cumulative probability <= top_p.",
+    )
     llm_max_tokens: int = Field(
         default=2048,
         gt=0,
@@ -53,6 +59,16 @@ class Settings(BaseSettings):
     llm_streaming: bool = Field(
         default=True,
         description="Bật/tắt streaming response.",
+    )
+    llm_timeout: int = Field(
+        default=120,
+        gt=0,
+        description="Timeout (giây) cho mỗi LLM request.",
+    )
+    llm_context_window: int = Field(
+        default=32768,
+        gt=0,
+        description="Context window size (tokens) của model.",
     )
 
     # ------------------------------------------------------------------
@@ -116,10 +132,14 @@ class Settings(BaseSettings):
         default="Enterprise Digital Assistant",
         description="Tên ứng dụng.",
     )
-    app_version: str = Field(default="1.0.0", description="Phiên bản ứng dụng.")
+    app_version: str = Field(default="2.0.0", description="Phiên bản ứng dụng.")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO",
         description="Log level.",
+    )
+    prompt_locale: Literal["vi", "en"] = Field(
+        default="vi",
+        description="Ngôn ngữ mặc định cho system prompt (vi = tiếng Việt, en = English).",
     )
 
     @field_validator("chunk_overlap")

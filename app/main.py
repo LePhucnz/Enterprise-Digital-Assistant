@@ -7,6 +7,7 @@ và thiết lập logging.
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +43,26 @@ def setup_logging(log_level: str = "INFO") -> None:
 
 
 # ------------------------------------------------------------------
+# Lifespan (FastAPI v0.93+ recommended over @app.on_event)
+# ------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Quản lý vòng đời ứng dụng (startup và shutdown).
+
+    Thay thế @app.on_event deprecated kể từ FastAPI v0.93.
+    """
+    # --- Startup ---
+    logger = logging.getLogger(__name__)
+    logger.info("Application startup complete. API ready.")
+    yield
+    # --- Shutdown ---
+    logger.info("Application shutdown.")
+
+
+# ------------------------------------------------------------------
 # Application Factory
 # ------------------------------------------------------------------
 
@@ -61,10 +82,11 @@ def create_app() -> FastAPI:
     logger = logging.getLogger(__name__)
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
 
-    # Tạo FastAPI app
+    # Tạo FastAPI app với lifespan context manager
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        lifespan=lifespan,
         description="""
 ## Enterprise Digital Assistant API
 
@@ -73,13 +95,13 @@ Trợ lý AI doanh nghiệp chạy hoàn toàn local với Ollama.
 ### Features
 - 💬 **Chat** với streaming response (SSE)
 - 🧠 **Conversation Memory** — lưu lịch sử chat theo session
-- 📄 **RAG** — upload PDF và hỏi về nội dung tài liệu *(Bước 4)*
-- 🔧 **Tools** — calculator, thời gian thực, tìm kiếm tài liệu *(Bước 5)*
+- 📄 **RAG** — upload PDF và hỏi về nội dung tài liệu *(Phase 3)*
+- 🔧 **Tools** — calculator, thời gian thực, tìm kiếm tài liệu *(Phase 4)*
 
 ### Tech Stack
 - **LLM**: Ollama + qwen2.5:latest
-- **Framework**: LangChain + FastAPI
-- **Vector DB**: ChromaDB
+- **Framework**: LangChain v0.3 + FastAPI
+- **Vector DB**: ChromaDB *(Phase 3)*
         """,
         docs_url="/docs",
         redoc_url="/redoc",
@@ -119,14 +141,6 @@ Trợ lý AI doanh nghiệp chạy hoàn toàn local với Ollama.
             "docs": "/docs",
             "health": f"{api_prefix}/health",
         }
-
-    @app.on_event("startup")
-    async def on_startup():
-        logger.info("Application startup complete. API ready.")
-
-    @app.on_event("shutdown")
-    async def on_shutdown():
-        logger.info("Application shutdown.")
 
     return app
 

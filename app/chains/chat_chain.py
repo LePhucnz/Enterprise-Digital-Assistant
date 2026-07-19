@@ -1,40 +1,38 @@
 """
 Chat Chain — Conversation chain với memory và streaming support.
 
-Implement BaseChain cho basic chat flow:
-  User Message → PromptTemplate → LLM → Response
+Implement BaseChain cho basic chat flow theo chuẩn LCEL:
+    Input → PromptTemplate → LLM → StrOutputParser → str response
+
+Thay đổi so với Phase 1:
+    - Prompt được import từ `app.prompts` (không còn hard-code ở đây).
+    - Sử dụng `top_p` và `timeout` từ settings.
+    - Exception được map thành `LLMException` hierarchy (app/core/exceptions.py).
+    - Không thay đổi interface public: `invoke()` và `astream()` giữ nguyên.
 
 Sử dụng RunnableWithMessageHistory để tích hợp chat history
 theo cách khuyến nghị của LangChain v0.3+.
 """
 
+import asyncio
 import logging
 from typing import AsyncGenerator, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_ollama import ChatOllama
 
 from app.config.settings import get_settings
 from app.core.base_chain import BaseChain
+from app.core.exceptions import (
+    LLMConnectionError,
+    LLMGenerationError,
+    LLMTimeoutError,
+)
 from app.memory.memory_manager import MemoryManager
+from app.prompts import get_chat_prompt_template
 
 logger = logging.getLogger(__name__)
-
-# System prompt mặc định — sẽ được chuyển vào prompts/ ở Bước 2
-_DEFAULT_SYSTEM_PROMPT = """Bạn là Enterprise Digital Assistant — trợ lý AI thông minh cho doanh nghiệp.
-
-Vai trò của bạn:
-- Trả lời câu hỏi chuyên nghiệp, chính xác và ngắn gọn.
-- Hỗ trợ phân tích tài liệu, tóm tắt thông tin và giải thích khái niệm phức tạp.
-- Sử dụng ngôn ngữ phù hợp với ngữ cảnh (tiếng Việt hoặc tiếng Anh theo câu hỏi).
-
-Quy tắc:
-- Luôn trả lời bằng ngôn ngữ người dùng đang dùng.
-- Nếu không chắc, hãy thừa nhận giới hạn của mình.
-- Không bịa đặt thông tin không có trong context."""
 
 
 class ChatChain(BaseChain):
@@ -44,12 +42,15 @@ class ChatChain(BaseChain):
     Sử dụng RunnableWithMessageHistory của LangChain v0.3+
     để quản lý conversation history theo session_id.
 
-    Luồng xử lý:
-        UserMessage
+    Luồng xử lý (LCEL):
+        {input}
             → ChatPromptTemplate (System + History + Human)
             → ChatOllama
             → StrOutputParser
             → str response
+
+    Prompt được lấy từ `app.prompts.get_chat_prompt_template()` —
+    không hard-code trong class này.
     """
 
     def __init__(
@@ -64,57 +65,61 @@ class ChatChain(BaseChain):
 
         Args:
             memory_manager: MemoryManager instance để quản lý sessions.
-            model: Override model name. Dùng settings mặc định nếu None.
-            temperature: Override temperature. Dùng settings mặc định nếu None.
-            system_prompt: Custom system prompt. Dùng default nếu None.
+            model:          Override model name. Dùng settings mặc định nếu None.
+            temperature:    Override temperature. Dùng settings mặc định nếu None.
+            system_prompt:  Không dùng nữa — kept for backward compatibility.
+                            Prompt hiện được quản lý bởi `app.prompts`.
         """
         settings = get_settings()
 
-        # Khởi tạo LLM
+        _model = model or settings.ollama_model
+        _temperature = temperature if temperature is not None else settings.llm_temperature
+
+        # Khởi tạo LLM với đầy đủ config từ settings
         llm = ChatOllama(
-            model=model or settings.ollama_model,
+            model=_model,
             base_url=settings.ollama_base_url,
-            temperature=temperature if temperature is not None else settings.llm_temperature,
+            temperature=_temperature,
+            top_p=settings.llm_top_p,
             num_predict=settings.llm_max_tokens,
+            num_ctx=settings.llm_context_window,
         )
 
         # Gọi parent constructor
         super().__init__(llm=llm)
 
         self._memory_manager = memory_manager
-        self._system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
+        self._model_name = _model
+        self._timeout = settings.llm_timeout
 
         # Xây dựng chain
         self._chain = self._build_chain()
+
         logger.info(
-            "ChatChain initialized (model=%s, temp=%.2f)",
-            model or settings.ollama_model,
-            temperature if temperature is not None else settings.llm_temperature,
+            "ChatChain initialized (model=%s, temp=%.2f, top_p=%.2f, timeout=%ds).",
+            _model,
+            _temperature,
+            settings.llm_top_p,
+            settings.llm_timeout,
         )
 
     def _build_chain(self) -> RunnableWithMessageHistory:
         """
-        Xây dựng LangChain runnable chain với history support.
+        Xây dựng LCEL chain: Prompt | LLM | Parser với history support.
 
-        Cấu trúc prompt:
-            - SystemMessage: Định nghĩa vai trò và hành vi của AI.
-            - MessagesPlaceholder("history"): Chat history từ memory.
-            - HumanMessage: Tin nhắn hiện tại từ người dùng.
+        Prompt được lấy từ `app.prompts.get_chat_prompt_template()`.
+        Không hard-code prompt trong method này.
 
         Returns:
-            RunnableWithMessageHistory: Chain có thể gọi invoke/astream.
+            RunnableWithMessageHistory: Chain hoàn chỉnh có thể gọi invoke/astream.
         """
-        # Prompt template
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self._system_prompt),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{input}"),
-        ])
+        # Lấy prompt template từ module quản lý prompt
+        prompt = get_chat_prompt_template()
 
-        # Core chain: prompt | llm | parser
+        # Core LCEL chain: prompt | llm | output parser
         core_chain = prompt | self.llm | StrOutputParser()
 
-        # Wrap với history management
+        # Wrap với RunnableWithMessageHistory để quản lý session history
         chain_with_history = RunnableWithMessageHistory(
             core_chain,
             get_session_history=self._memory_manager.get_session_history,
@@ -131,23 +136,60 @@ class ChatChain(BaseChain):
         Args:
             input_text: Tin nhắn từ người dùng.
             session_id: UUID của conversation session.
-            **kwargs: Tham số bổ sung.
+            **kwargs:   Tham số bổ sung (ignored, kept for interface compat).
 
         Returns:
             str: Response đầy đủ từ LLM.
 
         Raises:
-            Exception: Nếu có lỗi từ LLM hoặc network.
+            LLMConnectionError:  Nếu không kết nối được Ollama.
+            LLMTimeoutError:     Nếu request vượt quá timeout.
+            LLMGenerationError:  Nếu LLM lỗi trong quá trình generate.
         """
         try:
-            logger.debug("ChatChain.invoke: session=%s, input=%s...", session_id, input_text[:50])
+            logger.debug(
+                "ChatChain.invoke: session=%s, input='%s...'",
+                session_id,
+                input_text[:60],
+            )
             config = {"configurable": {"session_id": session_id}}
             response = self._chain.invoke({"input": input_text}, config=config)
-            logger.debug("ChatChain.invoke: response length=%d chars", len(response))
+            logger.debug(
+                "ChatChain.invoke: response length=%d chars.",
+                len(response),
+            )
             return response
+
+        except ConnectionError as e:
+            settings = get_settings()
+            raise LLMConnectionError(
+                base_url=settings.ollama_base_url,
+                detail=str(e),
+            ) from e
+        except TimeoutError as e:
+            raise LLMTimeoutError(
+                timeout_seconds=self._timeout,
+                detail=str(e),
+            ) from e
         except Exception as e:
+            # Bắt các lỗi khác từ httpx, ollama, langchain
+            error_str = str(e).lower()
+            if "connect" in error_str or "connection" in error_str:
+                settings = get_settings()
+                raise LLMConnectionError(
+                    base_url=settings.ollama_base_url,
+                    detail=str(e),
+                ) from e
+            if "timeout" in error_str or "timed out" in error_str:
+                raise LLMTimeoutError(
+                    timeout_seconds=self._timeout,
+                    detail=str(e),
+                ) from e
             logger.error("ChatChain.invoke error: %s", str(e), exc_info=True)
-            raise
+            raise LLMGenerationError(
+                model=self._model_name,
+                detail=str(e),
+            ) from e
 
     async def astream(
         self,
@@ -161,20 +203,53 @@ class ChatChain(BaseChain):
         Args:
             input_text: Tin nhắn từ người dùng.
             session_id: UUID của conversation session.
-            **kwargs: Tham số bổ sung.
+            **kwargs:   Tham số bổ sung.
 
         Yields:
             str: Từng token trong response.
 
         Raises:
-            Exception: Nếu có lỗi từ LLM hoặc network.
+            LLMConnectionError:  Nếu không kết nối được Ollama.
+            LLMTimeoutError:     Nếu stream bị timeout.
+            LLMGenerationError:  Nếu LLM lỗi trong quá trình generate.
         """
         try:
-            logger.debug("ChatChain.astream: session=%s, input=%s...", session_id, input_text[:50])
+            logger.debug(
+                "ChatChain.astream: session=%s, input='%s...'",
+                session_id,
+                input_text[:60],
+            )
             config = {"configurable": {"session_id": session_id}}
             async for chunk in self._chain.astream({"input": input_text}, config=config):
                 if chunk:
                     yield chunk
+
+        except ConnectionError as e:
+            settings = get_settings()
+            raise LLMConnectionError(
+                base_url=settings.ollama_base_url,
+                detail=str(e),
+            ) from e
+        except TimeoutError as e:
+            raise LLMTimeoutError(
+                timeout_seconds=self._timeout,
+                detail=str(e),
+            ) from e
         except Exception as e:
+            error_str = str(e).lower()
+            if "connect" in error_str or "connection" in error_str:
+                settings = get_settings()
+                raise LLMConnectionError(
+                    base_url=settings.ollama_base_url,
+                    detail=str(e),
+                ) from e
+            if "timeout" in error_str or "timed out" in error_str:
+                raise LLMTimeoutError(
+                    timeout_seconds=self._timeout,
+                    detail=str(e),
+                ) from e
             logger.error("ChatChain.astream error: %s", str(e), exc_info=True)
-            raise
+            raise LLMGenerationError(
+                model=self._model_name,
+                detail=str(e),
+            ) from e
