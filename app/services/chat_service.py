@@ -23,7 +23,8 @@ import uuid
 from typing import AsyncGenerator, Optional
 
 from app.chains.chat_chain import ChatChain
-from app.core.exceptions import AppException, LLMException
+from app.chains.rag_chain import RAGChain
+from app.core.exceptions import AppException, LLMException, RetrieverException
 from app.core.output_parser import ChatOutputParser, ParsedResponse
 from app.memory.memory_manager import MemoryManager
 from app.models.chat import (
@@ -32,7 +33,10 @@ from app.models.chat import (
     ClearHistoryResponse,
     Message,
     MessageRole,
+    RAGChatResponse,
+    SourceDocument,
 )
+from app.rag.retriever_service import RetrieverService
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +47,7 @@ class ChatService:
 
     Chịu trách nhiệm:
         - Quản lý session IDs.
-        - Gọi ChatChain (singleton).
+        - Gọi ChatChain hoặc RAGChain (singleton).
         - Parse output qua ChatOutputParser.
         - Trả về response đúng format cho API layer.
 
@@ -51,36 +55,46 @@ class ChatService:
         - Định nghĩa prompt (→ app/prompts/).
         - Cấu hình LLM (→ app/config/settings.py).
         - Lưu trữ memory (→ app/memory/).
+        - Retrieval logic (→ RetrieverService).
 
     Attributes:
-        _memory_manager: Singleton MemoryManager instance.
-        _output_parser:  ChatOutputParser instance.
-        _default_model:  Tên model LLM mặc định từ config.
+        _memory_manager:   Singleton MemoryManager instance.
+        _retriever_service: RetrieverService instance (injected, optional).
+        _output_parser:    ChatOutputParser instance.
+        _default_model:    Tên model LLM mặc định từ config.
     """
 
-    def __init__(self, memory_manager: MemoryManager) -> None:
+    def __init__(
+        self,
+        memory_manager: MemoryManager,
+        retriever_service: Optional[RetrieverService] = None,
+    ) -> None:
         """
         Khởi tạo ChatService.
 
         Args:
-            memory_manager: MemoryManager instance (injected qua DI).
+            memory_manager:    MemoryManager instance (injected qua DI).
+            retriever_service: RetrieverService instance (injected, required cho RAG).
         """
         from app.config.settings import get_settings
 
         self._memory_manager = memory_manager
+        self._retriever_service = retriever_service
         self._output_parser = ChatOutputParser()
 
         settings = get_settings()
         self._default_model = settings.ollama_model
         self._default_temperature = settings.llm_temperature
 
-        # Chain singleton — tạo một lần, dùng cho tất cả request
+        # Chain singletons — tạo một lần, dùng cho tất cả request
         self._chain: Optional[ChatChain] = None
+        self._rag_chain: Optional[RAGChain] = None
 
         logger.info(
-            "ChatService initialized (model=%s, backend=%s).",
+            "ChatService initialized (model=%s, backend=%s, rag=%s).",
             self._default_model,
             memory_manager.backend_type,
+            "enabled" if retriever_service else "disabled",
         )
 
     # ------------------------------------------------------------------
@@ -140,6 +154,36 @@ class ChatService:
             self._chain = ChatChain(memory_manager=self._memory_manager)
 
         return self._chain
+
+    def _get_rag_chain(
+        self,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ) -> RAGChain:
+        """
+        Trả về RAGChain singleton.
+
+        Tương tự _get_chain() nhưng cho RAG mode.
+
+        Args:
+            model:       Override model name.
+            temperature: Override temperature.
+
+        Returns:
+            RAGChain: Chain đã được khởi tạo.
+        """
+        if model or temperature is not None:
+            return RAGChain(
+                memory_manager=self._memory_manager,
+                model=model,
+                temperature=temperature,
+            )
+
+        if self._rag_chain is None:
+            logger.info("ChatService: creating default RAGChain singleton.")
+            self._rag_chain = RAGChain(memory_manager=self._memory_manager)
+
+        return self._rag_chain
 
     # ------------------------------------------------------------------
     # Public API

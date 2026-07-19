@@ -184,3 +184,225 @@ class InvalidRequestError(ValidationException):
         )
         self.field = field
         self.reason = reason
+
+
+# ===========================================================
+# Document Exceptions
+# ===========================================================
+
+
+class DocumentException(AppException):
+    """Base class cho tất cả lỗi liên quan đến Document management."""
+
+
+class DocumentNotFoundError(DocumentException):
+    """
+    Document ID không tồn tại trong repository.
+
+    Xảy ra khi client gửi doc_id không hợp lệ hoặc đã bị xóa.
+    """
+
+    def __init__(self, doc_id: str) -> None:
+        super().__init__(
+            message=f"Document '{doc_id}' không tồn tại hoặc đã bị xóa.",
+            code="DOCUMENT_NOT_FOUND",
+        )
+        self.doc_id = doc_id
+
+
+class DocumentAlreadyExistsError(DocumentException):
+    """
+    File đã được upload trước đó (duplicate check qua SHA256 hash).
+
+    Xảy ra khi người dùng upload cùng một file hai lần.
+    """
+
+    def __init__(self, file_name: str, existing_doc_id: str) -> None:
+        super().__init__(
+            message=f"File '{file_name}' đã được upload trước đó (doc_id: {existing_doc_id}).",
+            code="DOCUMENT_ALREADY_EXISTS",
+        )
+        self.file_name = file_name
+        self.existing_doc_id = existing_doc_id
+
+
+class UnsupportedFileTypeError(DocumentException):
+    """
+    Định dạng file không được hỗ trợ.
+
+    Chỉ chấp nhận: PDF, DOCX, TXT, CSV, Markdown.
+    """
+
+    def __init__(self, file_name: str, extension: str) -> None:
+        super().__init__(
+            message=(
+                f"Định dạng file '{extension}' không được hỗ trợ. "
+                f"Chấp nhận: .pdf, .docx, .txt, .csv, .md, .markdown"
+            ),
+            code="UNSUPPORTED_FILE_TYPE",
+        )
+        self.file_name = file_name
+        self.extension = extension
+
+
+class LoaderException(DocumentException):
+    """
+    Lỗi khi load hoặc parse file.
+
+    Thường xảy ra khi:
+    - File bị corrupt.
+    - File được password-protected (PDF).
+    - File encoding không hợp lệ (TXT/CSV).
+    """
+
+    def __init__(self, file_name: str, detail: Optional[str] = None) -> None:
+        super().__init__(
+            message=f"Không thể đọc file '{file_name}'. Hãy kiểm tra file không bị lỗi.",
+            detail=detail,
+            code="LOADER_ERROR",
+        )
+        self.file_name = file_name
+
+
+# ===========================================================
+# Embedding Exceptions
+# ===========================================================
+
+
+class EmbeddingException(AppException):
+    """
+    Lỗi trong quá trình tạo embeddings.
+
+    Thường xảy ra khi:
+    - Ollama không có model embedding (nomic-embed-text chưa được pull).
+    - Kết nối Ollama bị ngắt giữa chừng.
+    - Text chunk quá dài vượt context window của embedding model.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message=f"Lỗi embedding với model '{model}'. Hãy kiểm tra model đã được pull về chưa.",
+            detail=detail,
+            code="EMBEDDING_ERROR",
+        )
+        self.model = model
+
+
+# ===========================================================
+# Vector Store Exceptions
+# ===========================================================
+
+
+class VectorStoreException(AppException):
+    """Base class cho tất cả lỗi liên quan đến Vector Database."""
+
+
+class CollectionNotFoundError(VectorStoreException):
+    """
+    ChromaDB collection chưa được tạo hoặc không tồn tại.
+
+    Xảy ra khi truy vấn collection trước khi có document nào được index.
+    """
+
+    def __init__(self, collection_name: str) -> None:
+        super().__init__(
+            message=f"Collection '{collection_name}' chưa tồn tại. Hãy upload ít nhất một document.",
+            code="COLLECTION_NOT_FOUND",
+        )
+        self.collection_name = collection_name
+
+
+# ===========================================================
+# Retriever Exceptions
+# ===========================================================
+
+
+class RetrieverException(AppException):
+    """
+    Base class cho tất cả lỗi liên quan đến Retrieval.
+
+    Xảy ra trong quá trình tìm kiếm documents từ ChromaDB.
+    """
+
+
+class EmptyRetrievalError(RetrieverException):
+    """
+    Không tìm được document nào liên quan đến câu hỏi.
+
+    Xảy ra khi:
+    - ChromaDB collection rỗng (chưa có document nào được index).
+    - Score của tất cả kết quả thấp hơn threshold.
+    - Query không match với bất kỳ document nào.
+    """
+
+    def __init__(
+        self,
+        query: str,
+        collection_name: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message=(
+                f"Không tìm thấy tài liệu liên quan đến câu hỏi trong collection '{collection_name}'. "
+                f"Hãy upload tài liệu trước hoặc dùng chế độ Normal Chat."
+            ),
+            detail=detail,
+            code="EMPTY_RETRIEVAL",
+        )
+        self.query = query
+        self.collection_name = collection_name
+
+
+# ===========================================================
+# RAG Exceptions
+# ===========================================================
+
+
+class RAGException(AppException):
+    """
+    Lỗi tổng quát trong RAG pipeline.
+
+    Thường xảy ra khi:
+    - Retriever thành công nhưng LLM generation thất bại.
+    - Context quá dài vượt context window.
+    - Pipeline bị gián đoạn giữa chừng.
+    """
+
+    def __init__(
+        self,
+        stage: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message=f"RAG pipeline thất bại tại giai đoạn '{stage}'. Vui lòng thử lại.",
+            detail=detail,
+            code="RAG_PIPELINE_ERROR",
+        )
+        self.stage = stage
+
+
+# ===========================================================
+# Citation Exceptions
+# ===========================================================
+
+
+class CitationException(AppException):
+    """
+    Lỗi khi format hoặc extract source citations từ retrieved documents.
+
+    Không critical — thường chỉ log warning và trả về empty sources.
+    """
+
+    def __init__(
+        self,
+        detail: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message="Không thể trích xuất thông tin nguồn tài liệu.",
+            detail=detail,
+            code="CITATION_ERROR",
+        )

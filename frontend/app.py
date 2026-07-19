@@ -144,13 +144,171 @@ def render_sidebar(client: APIClient) -> None:
 
         st.divider()
 
+        # ------------------------------------------------------------------
+        # Knowledge Base Section
+        # ------------------------------------------------------------------
+        st.markdown("### 📚 Knowledge Base")
+
+        # Collection Stats
+        if st.session_state.get("api_online"):
+            try:
+                stats = client.get_collection_stats()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("📄 Documents", stats.get("indexed_documents", 0))
+                with col2:
+                    st.metric("🧩 Chunks", stats.get("total_chunks", 0))
+                st.caption(f"🧠 Model: `{stats.get('embedding_model', 'N/A')}`")
+            except Exception:
+                st.caption("Không lấy được thống kê KB.")
+
+        # File Uploader
+        uploaded_file = st.file_uploader(
+            "Upload tài liệu",
+            type=["pdf", "docx", "txt", "csv", "md"],
+            key="kb_file_uploader",
+            help="Hỗ trợ: PDF, DOCX, TXT, CSV, Markdown",
+        )
+
+        if uploaded_file is not None:
+            if st.button(
+                f"⬆️ Index '{uploaded_file.name}'",
+                use_container_width=True,
+                type="primary",
+                key="kb_upload_btn",
+            ):
+                _handle_document_upload(client, uploaded_file)
+
+        # Document List
+        st.markdown("**📂 Tài liệu đã upload:**")
+        _render_document_list(client)
+
+        st.divider()
+
         # App info
         st.markdown("""
         <div style='font-size: 0.75rem; color: rgba(255,255,255,0.4); text-align: center;'>
-            Enterprise Digital Assistant v1.0<br>
-            Powered by Ollama + LangChain
+            Enterprise Digital Assistant v2.0<br>
+            Powered by Ollama + LangChain + ChromaDB
         </div>
         """, unsafe_allow_html=True)
+
+
+# ------------------------------------------------------------------
+# Knowledge Base Helper Functions
+# ------------------------------------------------------------------
+
+
+def _handle_document_upload(client: APIClient, uploaded_file) -> None:
+    """
+    Xử lý upload file vào Knowledge Base.
+
+    Args:
+        client:        APIClient instance.
+        uploaded_file: Streamlit UploadedFile object.
+    """
+    with st.spinner(f"⏳ Đang index '{uploaded_file.name}'... (có thể mất vài phút)"):
+        try:
+            file_bytes = uploaded_file.read()
+            result = client.upload_document(
+                file_bytes=file_bytes,
+                filename=uploaded_file.name,
+            )
+            status = result.get("status", "unknown")
+            if status == "indexed":
+                chunk_count = result.get("chunk_count", 0)
+                st.success(
+                    f"✅ '{uploaded_file.name}' đã được index!\n"
+                    f"🧩 {chunk_count} chunks trong ChromaDB."
+                )
+            elif status == "failed":
+                error_msg = result.get("error_message", "Unknown error")
+                st.error(f"❌ Index thất bại: {error_msg}")
+            else:
+                st.info(f"ℹ️ Trạng thái: {status}")
+            st.rerun()
+        except ValueError as e:
+            # Lỗi từ server (duplicate, unsupported type...)
+            st.warning(f"⚠️ {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Lỗi upload: {str(e)}")
+            logger.error("Document upload error: %s", str(e))
+
+
+def _render_document_list(client: APIClient) -> None:
+    """
+    Render danh sách documents với nút xóa.
+
+    Args:
+        client: APIClient instance.
+    """
+    if not st.session_state.get("api_online"):
+        st.caption("⚠️ API offline")
+        return
+
+    try:
+        response = client.list_documents()
+        documents = response.get("documents", [])
+
+        if not documents:
+            st.caption("📥 Chưa có tài liệu nào.")
+            return
+
+        # Hiển thị từng document
+        for doc in documents:
+            doc_id = doc.get("id", "")
+            file_name = doc.get("file_name", "unknown")
+            status = doc.get("status", "unknown")
+            chunk_count = doc.get("chunk_count", 0)
+            file_size = doc.get("file_size", 0)
+
+            # Status icon
+            status_icon = {
+                "indexed": "✅",
+                "processing": "⏳",
+                "pending": "⏳",
+                "failed": "❌",
+            }.get(status, "❔")
+
+            # Truncate long filenames
+            display_name = file_name if len(file_name) <= 20 else file_name[:17] + "..."
+
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(
+                        f"{status_icon} **{display_name}**  \n"
+                        f"│ 🧩 {chunk_count} chunks | 💾 {file_size // 1024}KB",
+                    )
+                with col2:
+                    if st.button(
+                        "🗑️",
+                        key=f"del_{doc_id}",
+                        help=f"Xóa '{file_name}'",
+                    ):
+                        _handle_document_delete(client, doc_id, file_name)
+
+    except Exception as e:
+        st.caption(f"Lỗi tải danh sách: {str(e)[:50]}")
+        logger.error("list_documents error: %s", str(e))
+
+
+def _handle_document_delete(client: APIClient, doc_id: str, file_name: str) -> None:
+    """
+    Xử lý xóa document khỏi Knowledge Base.
+
+    Args:
+        client:    APIClient instance.
+        doc_id:    UUID của document.
+        file_name: Tên file để hiển thị thông báo.
+    """
+    try:
+        client.delete_document(doc_id)
+        st.success(f"✅ Đã xóa '{file_name}'!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"❌ Lỗi xóa: {str(e)}")
+        logger.error("delete_document error: %s", str(e))
 
 
 # ------------------------------------------------------------------

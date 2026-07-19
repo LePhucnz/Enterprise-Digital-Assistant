@@ -115,6 +115,20 @@ class Settings(BaseSettings):
         gt=0,
         description="Số lượng document chunks trả về từ retriever.",
     )
+    rag_search_type: Literal["similarity", "mmr", "similarity_score_threshold"] = Field(
+        default="similarity",
+        description="Chiến lược tìm kiếm: similarity, mmr (Max Marginal Relevance), hoặc similarity_score_threshold.",
+    )
+    rag_score_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Ngưỡng score tối thiểu khi dùng similarity_score_threshold search.",
+    )
+    collection_name: str = Field(
+        default="enterprise_kb",
+        description="Tên ChromaDB collection lưu trữ document embeddings.",
+    )
 
     # ------------------------------------------------------------------
     # Paths

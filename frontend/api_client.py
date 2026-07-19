@@ -188,3 +188,128 @@ class APIClient:
         except Exception as e:
             logger.error("clear_history failed: %s", str(e))
             raise
+
+    # ------------------------------------------------------------------
+    # Document API (Phase 3A)
+    # ------------------------------------------------------------------
+
+    def upload_document(self, file_bytes: bytes, filename: str) -> dict:
+        """
+        Upload file vào Knowledge Base.
+
+        Args:
+            file_bytes: Nội dung file dạng bytes.
+            filename:   Tên file gốc.
+
+        Returns:
+            dict: DocumentMetadata response.
+        """
+        try:
+            response = requests.post(
+                self._url("/documents/upload"),
+                files={"file": (filename, file_bytes)},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as e:
+            # Trả về error detail từ server
+            try:
+                error_detail = e.response.json().get("detail", str(e))
+            except Exception:
+                error_detail = str(e)
+            raise ValueError(error_detail) from e
+        except Exception as e:
+            logger.error("upload_document failed: %s", str(e))
+            raise
+
+    def list_documents(self) -> dict:
+        """
+        Lấy danh sách tất cả documents.
+
+        Returns:
+            dict: DocumentListResponse với danh sách documents.
+        """
+        try:
+            response = requests.get(
+                self._url("/documents"),
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error("list_documents failed: %s", str(e))
+            raise
+
+    def delete_document(self, doc_id: str) -> dict:
+        """
+        Xóa một document khỏi Knowledge Base.
+
+        Args:
+            doc_id: UUID của document.
+
+        Returns:
+            dict: DeleteDocumentResponse.
+        """
+        try:
+            response = requests.delete(
+                self._url(f"/documents/{doc_id}"),
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error("delete_document failed: %s", str(e))
+            raise
+
+    def get_collection_stats(self) -> dict:
+        """
+        Lấy thống kê Knowledge Base collection.
+
+        Returns:
+            dict: DocumentStatsResponse.
+        """
+        try:
+            response = requests.get(
+                self._url("/documents/stats"),
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error("get_collection_stats failed: %s", str(e))
+            return {
+                "total_documents": 0,
+                "indexed_documents": 0,
+                "total_chunks": 0,
+                "collection_name": "N/A",
+                "embedding_model": "N/A",
+            }
+
+    def reindex_document(self, doc_id: str) -> dict:
+        """
+        Reindex một document từ đầu.
+
+        Args:
+            doc_id: UUID của document.
+
+        Returns:
+            dict: DocumentMetadata sau reindex.
+        """
+        try:
+            response = requests.post(
+                self._url(f"/documents/{doc_id}/reindex"),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as e:
+            try:
+                error_detail = e.response.json().get("detail", str(e))
+            except Exception:
+                error_detail = str(e)
+            raise ValueError(error_detail) from e
+        except Exception as e:
+            logger.error("reindex_document failed: %s", str(e))
+            raise
+
