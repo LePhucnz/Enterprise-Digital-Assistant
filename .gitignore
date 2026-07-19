@@ -1,0 +1,79 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+
+# Chroma Database
+chroma_db/
+
+# Ollama cache (if exists)
+ollama/
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# Streamlit cache
+.streamlit/secrets.toml
+
+# Build
+dist/
+build/
+
+# Notebook
+.ipynb_checkpoints/
+
+# Temporary
+*.tmp
+*.bak
+
+# SQLite
+*.sqlite3
+
+# Coverage
+.coverage
+htmlcov/
+
+# Local configs
+config.local.yaml
+
+# Model cache
+models/
+
+# Generated embeddings
+embeddings/
+
+# Uploads
+uploads/
+
+# PDF cache
+cache/
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Windows
+desktop.ini
