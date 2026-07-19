@@ -24,15 +24,77 @@ from app.models.chat import (
 )
 from app.services.chat_service import ChatService
 
+from app.core.exceptions import (
+    AppException,
+    EmptyRetrievalError,
+    LLMConnectionError,
+    LLMGenerationError,
+    LLMTimeoutError,
+    RAGException,
+    RetrieverException,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
+# ===========================================================
+# Helper: Convert Chat Exception → HTTPException
+# ===========================================================
+
+
+def _to_http_error(e: Exception) -> HTTPException:
+    """
+    Convert domain exceptions liên quan đến Chat/LLM/RAG sang FastAPI HTTPException.
+
+    Args:
+        e: Exception được ném ra từ service hoặc chain.
+
+    Returns:
+        HTTPException với status code phù hợp.
+    """
+    if isinstance(e, LLMConnectionError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=e.message,
+        )
+    if isinstance(e, LLMTimeoutError):
+        return HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=e.message,
+        )
+    if isinstance(e, EmptyRetrievalError):
+        # Không tìm thấy tài liệu trong RAG mode
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=e.message,
+        )
+    if isinstance(e, (RetrieverException, RAGException, LLMGenerationError)):
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=e.message,
+        )
+    if isinstance(e, AppException):
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=e.message,
+        )
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Lỗi hệ thống: {str(e)}",
+    )
+
+
+# ===========================================================
+# Endpoints
+# ===========================================================
+
+
 @router.post(
     "",
     summary="Gửi tin nhắn (Streaming)",
-    description="Gửi tin nhắn đến AI và nhận response dưới dạng Server-Sent Events (SSE).",
+    description="Gửi tin nhắn đến AI và nhận response dưới dạng Server-Sent Events (SSE). Hỗ trợ RAG.",
 )
 async def chat_stream(
     request: ChatRequest,
@@ -49,13 +111,11 @@ async def chat_stream(
 
     Returns:
         StreamingResponse: SSE stream với từng chunk.
-
-    Raises:
-        HTTPException 500: Nếu có lỗi trong quá trình xử lý.
     """
     logger.info(
-        "POST /chat (streaming): session=%s, message=%s...",
+        "POST /chat (streaming): session=%s | RAG=%s | message=%s...",
         request.session_id,
+        request.use_rag,
         request.message[:50],
     )
 
@@ -63,11 +123,12 @@ async def chat_stream(
         """Generator tạo SSE events từ LLM stream."""
         session_id = None
         try:
-            session_id, stream = await chat_service.astream_chat(
+            session_id, stream, sources = await chat_service.astream_chat(
                 message=request.message,
                 session_id=request.session_id,
                 model=request.model,
                 temperature=request.temperature,
+                use_rag=request.use_rag,
             )
 
             # Gửi session_id ngay lập tức (chunk đầu tiên)
@@ -84,13 +145,14 @@ async def chat_stream(
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
 
-            # Chunk cuối báo hiệu kết thúc
-            done_chunk = StreamChunk(session_id=session_id, content="", is_done=True)
+            # Chunk cuối báo hiệu kết thúc, gửi kèm sources tìm được
+            done_chunk = StreamChunk(session_id=session_id, content="", is_done=True, sources=sources)
             yield f"data: {done_chunk.model_dump_json()}\n\n"
 
         except Exception as e:
             logger.error("Streaming error: %s", str(e), exc_info=True)
-            error_data = json.dumps({"error": str(e), "session_id": session_id})
+            http_err = _to_http_error(e)
+            error_data = json.dumps({"error": http_err.detail, "session_id": session_id})
             yield f"data: {error_data}\n\n"
 
     return StreamingResponse(
@@ -124,13 +186,11 @@ async def chat_sync(
 
     Returns:
         ChatResponse: Response đầy đủ từ AI.
-
-    Raises:
-        HTTPException 500: Nếu có lỗi LLM.
     """
     logger.info(
-        "POST /chat/sync: session=%s, message=%s...",
+        "POST /chat/sync: session=%s | RAG=%s | message=%s...",
         request.session_id,
+        request.use_rag,
         request.message[:50],
     )
 
@@ -140,13 +200,11 @@ async def chat_sync(
             session_id=request.session_id,
             model=request.model,
             temperature=request.temperature,
+            use_rag=request.use_rag,
         )
     except Exception as e:
         logger.error("Sync chat error: %s", str(e), exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat processing failed: {str(e)}",
-        ) from e
+        raise _to_http_error(e)
 
 
 @router.get(
@@ -193,3 +251,4 @@ async def clear_chat_history(
     """
     logger.info("DELETE /chat/history/%s", session_id)
     return chat_service.clear_history(session_id)
+

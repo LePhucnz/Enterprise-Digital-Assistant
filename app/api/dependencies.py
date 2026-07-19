@@ -15,6 +15,7 @@ Phase 3A (Documents):
     - get_vector_store_service(): ChromaDB singleton.
     - get_document_repository():  JSON metadata repository.
     - get_document_service():     Document pipeline orchestrator.
+    - get_retriever_service():    RetrieverService singleton.
 """
 
 import logging
@@ -26,6 +27,7 @@ from app.documents.repository import DocumentRepository
 from app.memory.memory_manager import InMemoryBackend, MemoryManager
 from app.rag.embedding_service import EmbeddingService
 from app.rag.vector_store_service import VectorStoreService
+from app.rag.retriever_service import RetrieverService
 from app.services.chat_service import ChatService
 
 logger = logging.getLogger(__name__)
@@ -77,7 +79,8 @@ def get_chat_service() -> ChatService:
     """
     logger.info("Creating ChatService singleton.")
     memory_manager = get_memory_manager()
-    return ChatService(memory_manager=memory_manager)
+    retriever_service = get_retriever_service()
+    return ChatService(memory_manager=memory_manager, retriever_service=retriever_service)
 
 
 # ===========================================================
@@ -111,6 +114,18 @@ def get_vector_store_service() -> VectorStoreService:
 
 
 @lru_cache(maxsize=1)
+def get_retriever_service() -> RetrieverService:
+    """
+    Trả về singleton RetrieverService instance.
+
+    Returns:
+        RetrieverService: Singleton instance, dùng chung VectorStoreService.
+    """
+    logger.info("Creating RetrieverService singleton.")
+    return RetrieverService(vector_store_service=get_vector_store_service())
+
+
+@lru_cache(maxsize=1)
 def get_document_repository() -> DocumentRepository:
     """
     Trả về singleton DocumentRepository (JSON persistence).
@@ -136,3 +151,4 @@ def get_document_service() -> DocumentService:
         embedding_service=get_embedding_service(),
         vector_store_service=get_vector_store_service(),
     )
+

@@ -32,6 +32,7 @@ def init_session_state() -> None:
         "model": "qwen2.5:latest",
         "temperature": 0.7,
         "streaming": True,
+        "use_rag": False,
         "api_online": False,
     }
     for key, value in defaults.items():
@@ -122,6 +123,16 @@ def render_sidebar(client: APIClient) -> None:
             help="Hiển thị response từng token thay vì chờ toàn bộ",
         )
         st.session_state["streaming"] = streaming
+
+        # RAG toggle
+        st.markdown("### 📚 RAG (Tài liệu)")
+        use_rag = st.toggle(
+            "Sử dụng Knowledge Base",
+            value=st.session_state["use_rag"],
+            key="use_rag_toggle",
+            help="Bật RAG để tìm kiếm thông tin trong tài liệu đã upload",
+        )
+        st.session_state["use_rag"] = use_rag
 
         st.divider()
 
@@ -315,11 +326,32 @@ def _handle_document_delete(client: APIClient, doc_id: str, file_name: str) -> N
 # Chat Interface
 # ------------------------------------------------------------------
 
+def _render_message_sources(sources: list[dict]) -> None:
+    """
+    Render danh sách nguồn tài liệu tham chiếu (citations).
+
+    Args:
+        sources: List dict dạng {"document": str, "page": int, "chunk_id": int}.
+    """
+    if not sources:
+        return
+
+    with st.expander("📚 Nguồn tài liệu tham chiếu", expanded=False):
+        for idx, src in enumerate(sources, 1):
+            doc_name = src.get("document", "Unknown")
+            page = src.get("page", 1)
+            chunk_id = src.get("chunk_id", 0)
+            st.markdown(
+                f"**{idx}.** 📄 `{doc_name}` — Trang {page} (Chunk #{chunk_id})"
+            )
+
+
 def render_chat_messages() -> None:
     """Render tất cả messages trong conversation."""
     for msg in st.session_state["messages"]:
         role = msg["role"]
         content = msg["content"]
+        sources = msg.get("sources")
 
         if role == "user":
             with st.chat_message("user", avatar="👤"):
@@ -327,6 +359,8 @@ def render_chat_messages() -> None:
         else:
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(content)
+                if sources:
+                    _render_message_sources(sources)
 
 
 def process_user_input(client: APIClient, user_input: str) -> None:
@@ -357,6 +391,7 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
     message_placeholder = st.empty()
     full_response = ""
     session_id = st.session_state["session_id"]
+    sources = None
 
     try:
         for chunk in client.chat_stream(
@@ -364,11 +399,14 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
             session_id=session_id,
             model=st.session_state["model"],
             temperature=st.session_state["temperature"],
+            use_rag=st.session_state["use_rag"],
         ):
             if chunk.get("is_done"):
                 # Cập nhật session_id nếu server trả về mới
                 if chunk.get("session_id"):
                     st.session_state["session_id"] = chunk["session_id"]
+                # Nhận sources được gửi ở chunk kết thúc
+                sources = chunk.get("sources")
                 break
 
             # Cập nhật session_id từ chunk đầu tiên
@@ -383,11 +421,16 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
         # Hiển thị response hoàn chỉnh (bỏ cursor)
         message_placeholder.markdown(full_response)
 
+        # Hiển thị sources
+        if sources:
+            _render_message_sources(sources)
+
         # Lưu vào history
         if full_response:
             st.session_state["messages"].append({
                 "role": "assistant",
                 "content": full_response,
+                "sources": sources,
             })
 
     except Exception as e:
@@ -405,6 +448,7 @@ def _handle_sync_response(client: APIClient, user_input: str) -> None:
                 session_id=st.session_state["session_id"],
                 model=st.session_state["model"],
                 temperature=st.session_state["temperature"],
+                use_rag=st.session_state["use_rag"],
             )
 
             # Cập nhật session_id
@@ -414,10 +458,15 @@ def _handle_sync_response(client: APIClient, user_input: str) -> None:
             content = response.get("message", {}).get("content", "Không có response.")
             st.markdown(content)
 
+            sources = response.get("sources")
+            if sources:
+                _render_message_sources(sources)
+
             # Lưu vào history
             st.session_state["messages"].append({
                 "role": "assistant",
                 "content": content,
+                "sources": sources,
             })
 
         except Exception as e:

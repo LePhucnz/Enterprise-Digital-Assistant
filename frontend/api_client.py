@@ -71,6 +71,7 @@ class APIClient:
         session_id: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
+        use_rag: bool = False,
     ) -> dict:
         """
         Gửi tin nhắn (non-streaming).
@@ -80,6 +81,7 @@ class APIClient:
             session_id: Session ID.
             model: Override model.
             temperature: Override temperature.
+            use_rag: True để sử dụng RAG.
 
         Returns:
             dict: Response từ API.
@@ -89,6 +91,7 @@ class APIClient:
             "session_id": session_id,
             "model": model,
             "temperature": temperature,
+            "use_rag": use_rag,
         }
         try:
             response = requests.post(
@@ -108,6 +111,7 @@ class APIClient:
         session_id: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
+        use_rag: bool = False,
     ) -> Generator[dict, None, None]:
         """
         Gửi tin nhắn với streaming response (SSE).
@@ -117,6 +121,7 @@ class APIClient:
             session_id: Session ID.
             model: Override model.
             temperature: Override temperature.
+            use_rag: True để sử dụng RAG.
 
         Yields:
             dict: Mỗi StreamChunk từ server.
@@ -126,6 +131,7 @@ class APIClient:
             "session_id": session_id,
             "model": model,
             "temperature": temperature,
+            "use_rag": use_rag,
         }
 
         with requests.post(
@@ -146,6 +152,7 @@ class APIClient:
                         except json.JSONDecodeError:
                             logger.warning("Invalid JSON chunk: %s", data_str)
                             continue
+
 
     def get_history(self, session_id: str) -> dict:
         """

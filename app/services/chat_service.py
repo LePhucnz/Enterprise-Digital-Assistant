@@ -195,41 +195,80 @@ class ChatService:
         session_id: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
+        use_rag: bool = False,
     ) -> ChatResponse:
         """
         Xử lý chat request (non-streaming).
+
+        Hỗ trợ cả normal chat và RAG chat.
 
         Args:
             message:     Tin nhắn từ người dùng.
             session_id:  Session ID (None → tạo mới).
             model:       Override model.
             temperature: Override temperature.
+            use_rag:     True để sử dụng RAG tìm kiếm tài liệu.
 
         Returns:
-            ChatResponse: Response đầy đủ từ AI.
+            ChatResponse: Response đầy đủ từ AI (kèm sources nếu dùng RAG).
 
         Raises:
-            LLMException:  Nếu có lỗi từ LLM (Connection, Timeout, Generation).
+            LLMException:  Nếu có lỗi từ LLM.
             AppException:  Nếu có lỗi ứng dụng khác.
         """
         session_id = self._ensure_session_id(session_id)
         used_model = model or self._default_model
 
         logger.info(
-            "ChatService.chat: session=%s | model=%s | message='%s...'",
+            "ChatService.chat: session=%s | model=%s | RAG=%s | message='%s...'",
             session_id,
             used_model,
+            use_rag,
             message[:60],
         )
 
         start_time = time.monotonic()
         try:
-            chain = self._get_chain(model=model, temperature=temperature)
-            raw_response = chain.invoke(input_text=message, session_id=session_id)
+            actual_use_rag = use_rag and self._retriever_service is not None
+
+            if use_rag and self._retriever_service is None:
+                logger.warning(
+                    "RAG mode requested but retriever_service is not initialized. Falling back to normal chat."
+                )
+
+            retrieval_result = None
+            sources_list = None
+
+            if actual_use_rag:
+                logger.info("ChatService: Running RAG retrieval for message...")
+                retrieval_result = self._retriever_service.retrieve(message, fallback_on_empty=True)
+                logger.info(
+                    "ChatService: Retrieval done in %.3fs. Found %d chunks.",
+                    retrieval_result.retrieval_time,
+                    len(retrieval_result.documents),
+                )
+                sources_list = [
+                    {
+                        "document": s.document,
+                        "page": s.page,
+                        "chunk_id": s.chunk_id,
+                    }
+                    for s in retrieval_result.sources
+                ]
+
+                chain = self._get_rag_chain(model=model, temperature=temperature)
+                raw_response = chain.invoke(
+                    input_text=message,
+                    context=retrieval_result.context,
+                    session_id=session_id,
+                )
+            else:
+                chain = self._get_chain(model=model, temperature=temperature)
+                raw_response = chain.invoke(input_text=message, session_id=session_id)
 
             elapsed = time.monotonic() - start_time
             logger.info(
-                "ChatService.chat: session=%s | elapsed=%.3fs | response_chars=%d",
+                "ChatService.chat completed: session=%s | elapsed=%.3fs | response_chars=%d",
                 session_id,
                 elapsed,
                 len(raw_response),
@@ -247,10 +286,11 @@ class ChatService:
                 session_id=session_id,
                 message=Message(role=MessageRole.ASSISTANT, content=parsed.answer),
                 model=used_model,
+                sources=sources_list,
             )
 
         except LLMException:
-            # Re-raise LLM exceptions as-is (đã có context đầy đủ)
+            # Re-raise LLM exceptions as-is
             elapsed = time.monotonic() - start_time
             logger.error(
                 "ChatService.chat ERROR: session=%s | elapsed=%.3fs",
@@ -272,53 +312,102 @@ class ChatService:
             )
             raise RuntimeError(f"Chat failed: {e}") from e
 
+
     async def astream_chat(
         self,
         message: str,
         session_id: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
-    ) -> tuple[str, AsyncGenerator[str, None]]:
+        use_rag: bool = False,
+    ) -> tuple[str, AsyncGenerator[str, None], Optional[list[dict]]]:
         """
         Xử lý chat request với streaming response.
+
+        Hỗ trợ cả normal chat và RAG chat.
 
         Args:
             message:     Tin nhắn từ người dùng.
             session_id:  Session ID (None → tạo mới).
             model:       Override model.
             temperature: Override temperature.
+            use_rag:     True để sử dụng RAG tìm kiếm tài liệu.
 
         Returns:
-            tuple[str, AsyncGenerator[str, None]]:
+            tuple[str, AsyncGenerator[str, None], Optional[list[dict]]]:
                 - session_id: Session ID đã dùng.
                 - generator:  Async generator yield từng token.
+                - sources:    Danh sách nguồn tài liệu (nếu RAG).
         """
         session_id = self._ensure_session_id(session_id)
+        used_model = model or self._default_model
 
         logger.info(
-            "ChatService.astream_chat: session=%s | model=%s | message='%s...'",
+            "ChatService.astream_chat: session=%s | model=%s | RAG=%s | message='%s...'",
             session_id,
-            model or self._default_model,
+            used_model,
+            use_rag,
             message[:60],
         )
 
         start_time = time.monotonic()
+        actual_use_rag = use_rag and self._retriever_service is not None
+
+        if use_rag and self._retriever_service is None:
+            logger.warning(
+                "RAG mode requested but retriever_service is not initialized. Falling back to normal chat."
+            )
+
+        retrieval_result = None
+        sources_list = None
+
+        if actual_use_rag:
+            logger.info("ChatService: Running RAG retrieval for streaming message...")
+            retrieval_result = self._retriever_service.retrieve(message, fallback_on_empty=True)
+            logger.info(
+                "ChatService: Retrieval done in %.3fs. Found %d chunks.",
+                retrieval_result.retrieval_time,
+                len(retrieval_result.documents),
+            )
+            sources_list = [
+                {
+                    "document": s.document,
+                    "page": s.page,
+                    "chunk_id": s.chunk_id,
+                }
+                for s in retrieval_result.sources
+            ]
 
         async def _timed_stream() -> AsyncGenerator[str, None]:
             """Wrapper stream có log elapsed time khi kết thúc."""
-            chain = self._get_chain(model=model, temperature=temperature)
+            if actual_use_rag and retrieval_result is not None:
+                chain = self._get_rag_chain(model=model, temperature=temperature)
+                stream_generator = chain.astream(
+                    input_text=message,
+                    context=retrieval_result.context,
+                    session_id=session_id,
+                )
+            else:
+                chain = self._get_chain(model=model, temperature=temperature)
+                stream_generator = chain.astream(
+                    input_text=message,
+                    session_id=session_id,
+                )
+
             try:
-                async for chunk in chain.astream(input_text=message, session_id=session_id):
+                async for chunk in stream_generator:
                     yield self._output_parser.parse_streaming_chunk(chunk)
             finally:
                 elapsed = time.monotonic() - start_time
                 logger.info(
-                    "ChatService.astream_chat: session=%s | stream_elapsed=%.3fs",
+                    "ChatService.astream_chat completed: session=%s | RAG=%s | stream_elapsed=%.3fs",
                     session_id,
+                    actual_use_rag,
                     elapsed,
                 )
 
-        return session_id, _timed_stream()
+        return session_id, _timed_stream(), sources_list
+
 
     def get_history(self, session_id: str) -> ChatHistoryResponse:
         """
