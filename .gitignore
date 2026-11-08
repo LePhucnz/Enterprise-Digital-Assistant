@@ -60,7 +60,7 @@ htmlcov/
 config.local.yaml
 
 # Model cache
-models/
+/models/
 
 # Generated embeddings
 embeddings/
