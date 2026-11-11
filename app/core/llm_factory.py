@@ -153,5 +153,6 @@ def get_chat_model(
             top_p=settings.llm_top_p,
             num_predict=settings.llm_max_tokens,
             num_ctx=settings.llm_context_window,
+            repeat_penalty=1.2,
         )
 

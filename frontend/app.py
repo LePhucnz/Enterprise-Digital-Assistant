@@ -31,7 +31,7 @@ def init_session_state() -> None:
         "session_id": str(uuid.uuid4()),
         "messages": [],           # List of {"role": str, "content": str, ...}
         "model": "qwen2.5:latest",
-        "temperature": 0.2,       # Mặc định tối ưu cho RAG (chính xác, không bịa đặt)
+        "temperature": 0.0,       # Mặc định 0.0 tối ưu tuyệt đối cho RAG (chính xác, chống sáng tạo bừa bãi)
         # Các tính năng cốt lõi luôn BẬT mặc định
         "streaming": True,        # Luôn bật streaming
         "use_rag": True,          # Luôn bật RAG tìm kiếm tài liệu
@@ -429,63 +429,30 @@ def main() -> None:
         page_title="Enterprise Digital Assistant",
         page_icon="🤖",
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
 
     # ------------------------------------------------------------------
-    # Custom CSS — Thiết kế giao diện chuyên nghiệp, gọn gàng, hợp mắt
+    # Custom CSS — Thiết kế giao diện chuyên nghiệp, thanh bên luôn mở cố định
     # ------------------------------------------------------------------
     st.markdown("""
     <style>
-        /* Ẩn bớt Streamlit menu và footer thừa */
+        /* Ẩn menu và footer thừa của Streamlit */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         [data-testid="stAppDeployButton"] {display: none !important;}
 
-        /* Tạo khoảng đệm trên cùng để nội dung không che khuất thanh công cụ */
+        /* Ẩn hoàn toàn nút thu gọn (<<) và nút mở (>>) sidebar để thanh bên luôn luôn mở cố định */
+        [data-testid="stSidebarCollapseButton"],
+        button[aria-label="Collapse sidebar"],
+        [data-testid="stExpandSidebarButton"],
+        button[aria-label="Expand sidebar"] {
+            display: none !important;
+        }
+
+        /* Padding trên để nội dung không bị header che */
         .block-container {
-            padding-top: 3.5rem !important;
-        }
-
-        /* Đảm bảo header và toolbar luôn nhận sự kiện chuột */
-        header[data-testid="stHeader"],
-        .stAppHeader {
-            background: transparent !important;
-            display: block !important;
-            visibility: visible !important;
-            height: 3.5rem !important;
-            z-index: 9999 !important;
-            pointer-events: auto !important;
-        }
-
-        [data-testid="stToolbar"],
-        .stAppToolbar {
-            visibility: visible !important;
-            display: flex !important;
-            pointer-events: auto !important;
-        }
-
-        /* Nút native Streamlit để mở sidebar — style nổi bật, luôn có mặt khi sidebar đóng */
-        [data-testid="stExpandSidebarButton"] button,
-        [data-testid="stExpandSidebarButton"] {
-            background: #2563eb !important;
-            color: #ffffff !important;
-            border-radius: 8px !important;
-            padding: 4px 10px !important;
-            border: none !important;
-            box-shadow: 0 3px 10px rgba(37,99,235,0.45) !important;
-            cursor: pointer !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-        [data-testid="stExpandSidebarButton"] button:hover,
-        [data-testid="stExpandSidebarButton"]:hover {
-            background: #1d4ed8 !important;
-            transform: scale(1.08) !important;
-        }
-        [data-testid="stExpandSidebarButton"] svg {
-            fill: #ffffff !important;
-            color: #ffffff !important;
+            padding-top: 2rem !important;
         }
 
         /* Header ứng dụng */
