@@ -1,18 +1,18 @@
 """
 Streamlit Frontend — Enterprise Digital Assistant.
 
-Main application file. Kết hợp sidebar và chat interface
-để tạo giao diện người dùng hoàn chỉnh.
+Giao diện người dùng hiện đại, tinh gọn theo tiêu chuẩn UI/UX Enterprise:
+    - RAG (Knowledge Base), Query Expansion, và Streaming luôn BẬT mặc định (ẩn nút gạt).
+    - Hỗ trợ linh hoạt 3 nguồn mô hình: Local (Ollama), OpenAI/OpenRouter API, Google Gemini API.
+    - Bố cục trực quan, tối ưu không gian, dễ sử dụng.
 
-Chạy đúng cách (từ project root):
+Chạy ứng dụng (từ thư mục gốc dự án):
     streamlit run run_frontend.py
-
-Đừng chạy trực tiếp (gây ModuleNotFoundError):
-    streamlit run frontend/app.py  # SAI — frontend/ không có trong sys.path
 """
 
 import logging
 import uuid
+from typing import Optional
 
 import streamlit as st
 
@@ -28,13 +28,15 @@ def init_session_state() -> None:
     """Khởi tạo các giá trị mặc định trong session state."""
     defaults = {
         "session_id": str(uuid.uuid4()),
-        "messages": [],           # List of {"role": str, "content": str}
+        "messages": [],           # List of {"role": str, "content": str, ...}
         "model": "qwen2.5:latest",
-        "temperature": 0.7,
-        "streaming": True,
-        "use_rag": False,
-        "enable_query_expansion": True,
+        "temperature": 0.2,       # Mặc định tối ưu cho RAG (chính xác, không bịa đặt)
+        # Các tính năng cốt lõi luôn BẬT mặc định
+        "streaming": True,        # Luôn bật streaming
+        "use_rag": True,          # Luôn bật RAG tìm kiếm tài liệu
+        "enable_query_expansion": True,  # Luôn bật Query Expansion đa chiều
         "api_online": False,
+        "selected_provider": "🏠 Local (Ollama)",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -52,70 +54,76 @@ def get_api_client() -> APIClient:
 
 
 # ------------------------------------------------------------------
-# Sidebar
+# Sidebar — Cấu hình & Quản lý Knowledge Base
 # ------------------------------------------------------------------
 
 def render_sidebar(client: APIClient) -> None:
     """
-    Render sidebar với các cài đặt và thông tin hệ thống.
-
-    Args:
-        client: APIClient instance.
+    Render sidebar gọn gàng, tinh tế:
+    - Trạng thái kết nối các provider
+    - Lựa chọn nguồn mô hình (Local vs Cloud API)
+    - Quản lý kho tài liệu (Knowledge Base)
+    - Thao tác phiên làm việc
     """
     with st.sidebar:
-        # Header
-        st.markdown("## ⚙️ Cài đặt")
-        st.divider()
+        # 1. Header & Status
+        st.markdown("### 🏢 Enterprise Assistant")
+        st.caption("Trợ lý số doanh nghiệp · RAG thông minh")
 
-        # API Status
+        # Kiểm tra trạng thái hệ thống
         health = client.health_check()
         is_online = health.get("status") == "healthy"
         st.session_state["api_online"] = is_online
 
         if is_online:
-            st.markdown(
-                '<span class="status-online"></span> **API Online**',
-                unsafe_allow_html=True,
-            )
             ollama_ok = health.get("ollama_connected", False)
             openai_ok = health.get("openai_configured", False)
             gemini_ok = health.get("gemini_configured", False)
 
+            # Badge trạng thái 3 providers
             status_cols = st.columns(3)
             with status_cols[0]:
-                if ollama_ok:
-                    st.caption("🟢 **Ollama**")
-                else:
-                    st.caption("⚪ Ollama")
+                st.markdown(
+                    f"<div class='status-badge {'active' if ollama_ok else 'inactive'}'>"
+                    f"● Ollama</div>",
+                    unsafe_allow_html=True,
+                )
             with status_cols[1]:
-                if openai_ok:
-                    st.caption("🟢 **OpenAI**")
-                else:
-                    st.caption("⚪ OpenAI")
+                st.markdown(
+                    f"<div class='status-badge {'active' if openai_ok else 'inactive'}'>"
+                    f"● OpenAI</div>",
+                    unsafe_allow_html=True,
+                )
             with status_cols[2]:
-                if gemini_ok:
-                    st.caption("🟢 **Gemini**")
-                else:
-                    st.caption("⚪ Gemini")
+                st.markdown(
+                    f"<div class='status-badge {'active' if gemini_ok else 'inactive'}'>"
+                    f"● Gemini</div>",
+                    unsafe_allow_html=True,
+                )
         else:
-            st.markdown(
-                '<span class="status-offline"></span> **API Offline**',
-                unsafe_allow_html=True,
-            )
-            st.error("Không thể kết nối đến FastAPI server.\nHãy chạy: `uvicorn app.main:app`")
+            st.error("🔴 **API Server Offline**\nVui lòng khởi động backend FastAPI.")
 
-        st.divider()
+        st.markdown("<hr class='compact-divider'/>", unsafe_allow_html=True)
 
-        # Provider & Model Selection
-        st.markdown("### 🤖 Nguồn & Mô hình (LLM)")
+        # 2. Chọn Nguồn & Mô hình AI
+        st.markdown("##### 🤖 Mô hình AI")
+
+        provider_options = [
+            "🏠 Local (Ollama)",
+            "🔑 API Key (OpenAI / OpenRouter)",
+            "✨ API Key (Google Gemini)",
+        ]
+
         provider_mode = st.radio(
-            "Chế độ chạy",
-            options=["🏠 Local (Ollama)", "🔑 API Key (OpenAI / OpenRouter)", "✨ API Key (Google Gemini)"],
+            "Nguồn LLM",
+            options=provider_options,
             index=0,
             key="provider_radio",
-            help="Chạy offline bằng Ollama hoặc dùng Cloud API Key",
+            label_visibility="collapsed",
         )
+        st.session_state["selected_provider"] = provider_mode
 
+        # Danh sách model theo từng provider
         if "Local" in provider_mode:
             model_options = [
                 "qwen2.5:latest",
@@ -123,7 +131,7 @@ def render_sidebar(client: APIClient) -> None:
                 "llama3.2:latest",
                 "mistral:latest",
             ]
-            help_text = "Model chạy cục bộ qua Ollama (offline, bảo mật cao)"
+            help_text = "Chạy hoàn toàn cục bộ qua Ollama — bảo mật tuyệt đối, không cần internet."
         elif "Google" in provider_mode:
             model_options = [
                 "gemini-3.8-flash",
@@ -131,7 +139,7 @@ def render_sidebar(client: APIClient) -> None:
                 "gemini-flash-latest",
                 "gemini-2.5-pro",
             ]
-            help_text = "Google Gemini qua API Key (tốc độ cao, context lớn)"
+            help_text = "Google Gemini API — tốc độ cao, khả năng hiểu tài liệu dài xuất sắc."
         else:
             model_options = [
                 "openai/gpt-4o-mini",
@@ -139,144 +147,103 @@ def render_sidebar(client: APIClient) -> None:
                 "anthropic/claude-3.5-sonnet",
                 "deepseek/deepseek-chat",
             ]
-            help_text = "OpenAI / OpenRouter qua API Key"
+            help_text = "OpenAI / OpenRouter API — phản hồi thông minh, suy luận sắc bén."
 
-        model = st.selectbox(
+        selected_model = st.selectbox(
             "Chọn model",
             options=model_options,
             index=0,
-            key=f"model_select_{provider_mode}",
+            key=f"select_model_{provider_mode}",
             help=help_text,
         )
-        st.session_state["model"] = model
+        st.session_state["model"] = selected_model
 
-        # Temperature
-        st.markdown("### 🌡️ Temperature")
-        temperature = st.slider(
-            "Temperature",
-            min_value=0.0,
-            max_value=2.0,
-            value=st.session_state["temperature"],
-            step=0.1,
-            key="temp_slider",
-            help="0.0 = Chính xác, 1.0 = Cân bằng, 2.0 = Sáng tạo",
+        # Badge thông báo tính năng tự động (RAG + Expansion + Streaming)
+        st.markdown(
+            """
+            <div class='feature-pill'>
+                ⚡ <b>RAG + Query Expansion + Streaming</b>: Đang hoạt động
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        st.session_state["temperature"] = temperature
 
-        # Streaming toggle
-        st.markdown("### ⚡ Streaming")
-        streaming = st.toggle(
-            "Bật Streaming Response",
-            value=st.session_state["streaming"],
-            key="streaming_toggle",
-            help="Hiển thị response từng token thay vì chờ toàn bộ",
-        )
-        st.session_state["streaming"] = streaming
+        st.markdown("<hr class='compact-divider'/>", unsafe_allow_html=True)
 
-        # RAG toggle
-        st.markdown("### 📚 RAG (Tài liệu)")
-        use_rag = st.toggle(
-            "Sử dụng Knowledge Base",
-            value=st.session_state["use_rag"],
-            key="use_rag_toggle",
-            help="Bật RAG để tìm kiếm thông tin trong tài liệu đã upload",
-        )
-        st.session_state["use_rag"] = use_rag
+        # 3. Kho tri thức (Knowledge Base)
+        st.markdown("##### 📚 Kho tài liệu (Knowledge Base)")
 
-        if use_rag:
-            enable_query_expansion = st.toggle(
-                "🔍 Query Expansion (Mở rộng truy vấn)",
-                value=st.session_state["enable_query_expansion"],
-                key="query_expansion_toggle",
-                help="Tự động mở rộng câu hỏi thành nhiều góc nhìn/thuật ngữ để tìm kiếm tài liệu bao quát hơn, tránh cứng nhắc.",
+        if st.session_state.get("api_online"):
+            try:
+                stats = client.get_collection_stats()
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("📄 Tài liệu", stats.get("indexed_documents", 0))
+                with col_b:
+                    st.metric("🧩 Chunks", stats.get("total_chunks", 0))
+            except Exception:
+                st.caption("Chưa kết nối được Vector DB.")
+
+        # Uploader và danh sách tài liệu
+        with st.expander("📁 Tải lên & Quản lý tài liệu", expanded=False):
+            uploaded_file = st.file_uploader(
+                "Thêm tài liệu mới",
+                type=["pdf", "docx", "txt", "csv", "md"],
+                key="kb_uploader",
+                help="Hỗ trợ PDF, DOCX, TXT, CSV, MD",
             )
-            st.session_state["enable_query_expansion"] = enable_query_expansion
+            if uploaded_file is not None:
+                if st.button(
+                    f"⬆️ Nạp '{uploaded_file.name}'",
+                    use_container_width=True,
+                    type="primary",
+                    key="btn_upload_doc",
+                ):
+                    _handle_document_upload(client, uploaded_file)
 
-        st.divider()
+            st.markdown("**Tài liệu đã nạp:**")
+            _render_document_list(client)
 
-        # Session Info
-        st.markdown("### 📋 Session")
-        session_short = st.session_state["session_id"][:8] + "..."
-        st.caption(f"Session ID: `{session_short}`")
-        st.caption(f"Tin nhắn: {len(st.session_state['messages'])}")
+        st.markdown("<hr class='compact-divider'/>", unsafe_allow_html=True)
 
-        # Clear history button
+        # 4. Thao tác phiên hội thoại
+        col_s1, col_s2 = st.columns([1, 1])
+        with col_s1:
+            st.caption(f"Phiên: `{st.session_state['session_id'][:8]}`")
+        with col_s2:
+            st.caption(f"Tin nhắn: {len(st.session_state['messages'])}")
+
         if st.button("🗑️ Xóa lịch sử chat", use_container_width=True, type="secondary"):
             try:
                 client.clear_history(st.session_state["session_id"])
                 st.session_state["messages"] = []
                 st.session_state["session_id"] = str(uuid.uuid4())
-                st.success("Đã xóa lịch sử chat!")
+                st.success("Đã làm mới phiên chat!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Lỗi: {str(e)}")
 
-        st.divider()
-
-        # ------------------------------------------------------------------
-        # Knowledge Base Section
-        # ------------------------------------------------------------------
-        st.markdown("### 📚 Knowledge Base")
-
-        # Collection Stats
-        if st.session_state.get("api_online"):
-            try:
-                stats = client.get_collection_stats()
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("📄 Documents", stats.get("indexed_documents", 0))
-                with col2:
-                    st.metric("🧩 Chunks", stats.get("total_chunks", 0))
-                st.caption(f"🧠 Model: `{stats.get('embedding_model', 'N/A')}`")
-            except Exception:
-                st.caption("Không lấy được thống kê KB.")
-
-        # File Uploader
-        uploaded_file = st.file_uploader(
-            "Upload tài liệu",
-            type=["pdf", "docx", "txt", "csv", "md"],
-            key="kb_file_uploader",
-            help="Hỗ trợ: PDF, DOCX, TXT, CSV, Markdown",
-        )
-
-        if uploaded_file is not None:
-            if st.button(
-                f"⬆️ Index '{uploaded_file.name}'",
-                use_container_width=True,
-                type="primary",
-                key="kb_upload_btn",
-            ):
-                _handle_document_upload(client, uploaded_file)
-
-        # Document List
-        st.markdown("**📂 Tài liệu đã upload:**")
-        _render_document_list(client)
-
-        st.divider()
-
-        # App info
-        st.markdown("""
-        <div style='font-size: 0.75rem; color: rgba(255,255,255,0.4); text-align: center;'>
-            Enterprise Digital Assistant v2.0<br>
-            Powered by Ollama + LangChain + ChromaDB
-        </div>
-        """, unsafe_allow_html=True)
+        # Cài đặt nâng cao (ẩn thu gọn)
+        with st.expander("⚙️ Nâng cao", expanded=False):
+            temperature = st.slider(
+                "Nhiệt độ (Temperature)",
+                min_value=0.0,
+                max_value=1.5,
+                value=float(st.session_state["temperature"]),
+                step=0.05,
+                key="temp_slider_adv",
+                help="Thấp hơn = câu trả lời bám sát tài liệu hơn. Cao hơn = đa dạng từ ngữ hơn.",
+            )
+            st.session_state["temperature"] = temperature
 
 
 # ------------------------------------------------------------------
-# Knowledge Base Helper Functions
+# Knowledge Base Helpers
 # ------------------------------------------------------------------
-
 
 def _handle_document_upload(client: APIClient, uploaded_file) -> None:
-    """
-    Xử lý upload file vào Knowledge Base.
-
-    Args:
-        client:        APIClient instance.
-        uploaded_file: Streamlit UploadedFile object.
-    """
-    with st.spinner(f"⏳ Đang index '{uploaded_file.name}'... (có thể mất vài phút)"):
+    """Xử lý upload file vào Knowledge Base."""
+    with st.spinner(f"⏳ Đang index '{uploaded_file.name}' vào Vector Store..."):
         try:
             file_bytes = uploaded_file.read()
             result = client.upload_document(
@@ -286,33 +253,22 @@ def _handle_document_upload(client: APIClient, uploaded_file) -> None:
             status = result.get("status", "unknown")
             if status == "indexed":
                 chunk_count = result.get("chunk_count", 0)
-                st.success(
-                    f"✅ '{uploaded_file.name}' đã được index!\n"
-                    f"🧩 {chunk_count} chunks trong ChromaDB."
-                )
+                st.success(f"✅ Đã index {chunk_count} chunks!")
             elif status == "failed":
-                error_msg = result.get("error_message", "Unknown error")
-                st.error(f"❌ Index thất bại: {error_msg}")
+                st.error(f"❌ Thất bại: {result.get('error_message', 'Unknown error')}")
             else:
                 st.info(f"ℹ️ Trạng thái: {status}")
             st.rerun()
         except ValueError as e:
-            # Lỗi từ server (duplicate, unsupported type...)
             st.warning(f"⚠️ {str(e)}")
         except Exception as e:
-            st.error(f"❌ Lỗi upload: {str(e)}")
-            logger.error("Document upload error: %s", str(e))
+            st.error(f"❌ Lỗi: {str(e)}")
 
 
 def _render_document_list(client: APIClient) -> None:
-    """
-    Render danh sách documents với nút xóa.
-
-    Args:
-        client: APIClient instance.
-    """
+    """Render danh sách documents gọn gàng kèm nút xóa."""
     if not st.session_state.get("api_online"):
-        st.caption("⚠️ API offline")
+        st.caption("Chưa kết nối API.")
         return
 
     try:
@@ -320,108 +276,62 @@ def _render_document_list(client: APIClient) -> None:
         documents = response.get("documents", [])
 
         if not documents:
-            st.caption("📥 Chưa có tài liệu nào.")
+            st.caption("Chưa có tài liệu nào trong kho.")
             return
 
-        # Hiển thị từng document
         for doc in documents:
             doc_id = doc.get("id", "")
             file_name = doc.get("file_name", "unknown")
-            status = doc.get("status", "unknown")
             chunk_count = doc.get("chunk_count", 0)
-            file_size = doc.get("file_size", 0)
+            file_size_kb = doc.get("file_size", 0) // 1024
 
-            # Status icon
-            status_icon = {
-                "indexed": "✅",
-                "processing": "⏳",
-                "pending": "⏳",
-                "failed": "❌",
-            }.get(status, "❔")
+            display_name = file_name if len(file_name) <= 22 else file_name[:19] + "..."
 
-            # Truncate long filenames
-            display_name = file_name if len(file_name) <= 20 else file_name[:17] + "..."
-
-            with st.container():
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.markdown(
-                        f"{status_icon} **{display_name}**  \n"
-                        f"│ 🧩 {chunk_count} chunks | 💾 {file_size // 1024}KB",
-                    )
-                with col2:
-                    if st.button(
-                        "🗑️",
-                        key=f"del_{doc_id}",
-                        help=f"Xóa '{file_name}'",
-                    ):
-                        _handle_document_delete(client, doc_id, file_name)
-
+            col_doc, col_del = st.columns([5, 1])
+            with col_doc:
+                st.markdown(f"📄 **{display_name}**  \n<small>{chunk_count} chunks · {file_size_kb}KB</small>", unsafe_allow_html=True)
+            with col_del:
+                if st.button("🗑️", key=f"del_{doc_id}", help=f"Xóa {file_name}"):
+                    try:
+                        client.delete_document(doc_id)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
     except Exception as e:
-        st.caption(f"Lỗi tải danh sách: {str(e)[:50]}")
-        logger.error("list_documents error: %s", str(e))
-
-
-def _handle_document_delete(client: APIClient, doc_id: str, file_name: str) -> None:
-    """
-    Xử lý xóa document khỏi Knowledge Base.
-
-    Args:
-        client:    APIClient instance.
-        doc_id:    UUID của document.
-        file_name: Tên file để hiển thị thông báo.
-    """
-    try:
-        client.delete_document(doc_id)
-        st.success(f"✅ Đã xóa '{file_name}'!")
-        st.rerun()
-    except Exception as e:
-        st.error(f"❌ Lỗi xóa: {str(e)}")
-        logger.error("delete_document error: %s", str(e))
+        st.caption(f"Lỗi: {str(e)[:40]}")
 
 
 # ------------------------------------------------------------------
-# Chat Interface
+# Chat Components
 # ------------------------------------------------------------------
 
 def _render_query_expansion(expanded_queries: list[str]) -> None:
-    """
-    Render danh sách các câu truy vấn mở rộng được sinh bởi Query Expansion.
-
-    Args:
-        expanded_queries: List câu hỏi/từ khóa biến thể.
-    """
+    """Render danh sách các câu truy vấn mở rộng từ Query Expansion."""
     if not expanded_queries:
         return
 
     with st.expander("🔍 Góc nhìn tìm kiếm mở rộng (Query Expansion)", expanded=False):
-        st.caption("AI đã tự động mở rộng câu hỏi thành các biến thể sau để tăng độ bao quát:")
         for idx, q in enumerate(expanded_queries, 1):
-            st.markdown(f"**{idx}.** *{q}*")
+            st.markdown(f"• *{q}*")
 
 
 def _render_message_sources(sources: list[dict]) -> None:
-    """
-    Render danh sách nguồn tài liệu tham chiếu (citations).
-
-    Args:
-        sources: List dict dạng {"document": str, "page": int, "chunk_id": int}.
-    """
+    """Render nguồn tài liệu tham chiếu (citations) dưới dạng thẻ trích dẫn."""
     if not sources:
         return
 
-    with st.expander("📚 Nguồn tài liệu tham chiếu", expanded=False):
+    with st.expander(f"📚 Nguồn tài liệu tham chiếu ({len(sources)} đoạn)", expanded=False):
         for idx, src in enumerate(sources, 1):
             doc_name = src.get("document", "Unknown")
             page = src.get("page", 1)
             chunk_id = src.get("chunk_id", 0)
             st.markdown(
-                f"**{idx}.** 📄 `{doc_name}` — Trang {page} (Chunk #{chunk_id})"
+                f"**{idx}.** 📄 `{doc_name}` — **Trang {page}** *(Chunk #{chunk_id})*"
             )
 
 
 def render_chat_messages() -> None:
-    """Render tất cả messages trong conversation."""
+    """Render lịch sử tin nhắn trong phiên làm việc."""
     for msg in st.session_state["messages"]:
         role = msg["role"]
         content = msg["content"]
@@ -442,139 +352,78 @@ def render_chat_messages() -> None:
 
 def process_user_input(client: APIClient, user_input: str) -> None:
     """
-    Xử lý input từ người dùng và gọi API.
-
-    Args:
-        client: APIClient instance.
-        user_input: Tin nhắn từ người dùng.
+    Gửi câu hỏi của người dùng đến API với:
+    - use_rag: Luôn True
+    - enable_query_expansion: Luôn True
+    - streaming: Luôn True
     """
-    # Thêm user message vào history
+    # 1. Thêm user message vào UI
     st.session_state["messages"].append({"role": "user", "content": user_input})
-
-    # Hiển thị user message
     with st.chat_message("user", avatar="👤"):
         st.markdown(user_input)
 
-    # Gọi API và hiển thị response
+    # 2. Xử lý phản hồi từ Assistant (Streaming luôn bật)
     with st.chat_message("assistant", avatar="🤖"):
-        if st.session_state["streaming"]:
-            _handle_streaming_response(client, user_input)
-        else:
-            _handle_sync_response(client, user_input)
+        message_placeholder = st.empty()
+        full_response = ""
+        session_id = st.session_state["session_id"]
+        sources = None
+        expanded_queries = None
 
-
-def _handle_streaming_response(client: APIClient, user_input: str) -> None:
-    """Xử lý streaming response từ API."""
-    message_placeholder = st.empty()
-    full_response = ""
-    session_id = st.session_state["session_id"]
-    sources = None
-    expanded_queries = None
-
-    try:
-        for chunk in client.chat_stream(
-            message=user_input,
-            session_id=session_id,
-            model=st.session_state["model"],
-            temperature=st.session_state["temperature"],
-            use_rag=st.session_state["use_rag"],
-            enable_query_expansion=st.session_state.get("enable_query_expansion", True) if st.session_state["use_rag"] else None,
-        ):
-            if chunk.get("is_done"):
-                # Cập nhật session_id nếu server trả về mới
-                if chunk.get("session_id"):
-                    st.session_state["session_id"] = chunk["session_id"]
-                # Nhận sources và expanded_queries được gửi ở chunk kết thúc
-                sources = chunk.get("sources")
-                expanded_queries = chunk.get("expanded_queries")
-                break
-
-            # Cập nhật session_id từ chunk đầu tiên
-            if chunk.get("session_id") and not full_response:
-                st.session_state["session_id"] = chunk["session_id"]
-
-            content = chunk.get("content", "")
-            if content:
-                full_response += content
-                message_placeholder.markdown(full_response + "▌")
-
-        # Hiển thị response hoàn chỉnh (bỏ cursor)
-        message_placeholder.markdown(full_response)
-
-        # Hiển thị expanded queries nếu có
-        if expanded_queries:
-            _render_query_expansion(expanded_queries)
-
-        # Hiển thị sources
-        if sources:
-            _render_message_sources(sources)
-
-        # Lưu vào history
-        if full_response:
-            st.session_state["messages"].append({
-                "role": "assistant",
-                "content": full_response,
-                "sources": sources,
-                "expanded_queries": expanded_queries,
-            })
-
-    except Exception as e:
-        error_msg = f"❌ Lỗi kết nối API: {str(e)}\n\nHãy đảm bảo FastAPI server đang chạy."
-        message_placeholder.error(error_msg)
-        logger.error("Streaming error: %s", str(e))
-
-
-def _handle_sync_response(client: APIClient, user_input: str) -> None:
-    """Xử lý non-streaming response từ API."""
-    with st.spinner("Đang xử lý..."):
         try:
-            response = client.chat_sync(
+            for chunk in client.chat_stream(
                 message=user_input,
-                session_id=st.session_state["session_id"],
+                session_id=session_id,
                 model=st.session_state["model"],
                 temperature=st.session_state["temperature"],
-                use_rag=st.session_state["use_rag"],
-                enable_query_expansion=st.session_state.get("enable_query_expansion", True) if st.session_state["use_rag"] else None,
-            )
+                use_rag=True,                  # LUÔN BẬT
+                enable_query_expansion=True,   # LUÔN BẬT
+            ):
+                if chunk.get("is_done"):
+                    if chunk.get("session_id"):
+                        st.session_state["session_id"] = chunk["session_id"]
+                    sources = chunk.get("sources")
+                    expanded_queries = chunk.get("expanded_queries")
+                    break
 
-            # Cập nhật session_id
-            if response.get("session_id"):
-                st.session_state["session_id"] = response["session_id"]
+                if chunk.get("session_id") and not full_response:
+                    st.session_state["session_id"] = chunk["session_id"]
 
-            content = response.get("message", {}).get("content", "Không có response.")
-            st.markdown(content)
+                content = chunk.get("content", "")
+                if content:
+                    full_response += content
+                    message_placeholder.markdown(full_response + "▌")
 
-            expanded_queries = response.get("expanded_queries")
+            # Hiển thị hoàn chỉnh bỏ con trỏ
+            message_placeholder.markdown(full_response)
+
             if expanded_queries:
                 _render_query_expansion(expanded_queries)
 
-            sources = response.get("sources")
             if sources:
                 _render_message_sources(sources)
 
-            # Lưu vào history
-            st.session_state["messages"].append({
-                "role": "assistant",
-                "content": content,
-                "sources": sources,
-                "expanded_queries": expanded_queries,
-            })
+            # Lưu vào bộ nhớ lịch sử
+            if full_response:
+                st.session_state["messages"].append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "sources": sources,
+                    "expanded_queries": expanded_queries,
+                })
 
         except Exception as e:
-            error_msg = f"❌ Lỗi: {str(e)}"
-            st.error(error_msg)
-            logger.error("Sync chat error: %s", str(e))
+            error_msg = f"❌ Không thể hoàn tất phản hồi: {str(e)}"
+            message_placeholder.error(error_msg)
+            logger.error("Chat error: %s", str(e))
 
 
 # ------------------------------------------------------------------
-# Main App
+# Main Application
 # ------------------------------------------------------------------
 
 def main() -> None:
-    """Main entry point cho Streamlit application."""
-    # ------------------------------------------------------------------
-    # Page Configuration — phải là lệnh Streamlit đầu tiên mỗi rerun
-    # ------------------------------------------------------------------
+    """Entry point chính của ứng dụng."""
     st.set_page_config(
         page_title="Enterprise Digital Assistant",
         page_icon="🤖",
@@ -583,84 +432,92 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # Custom CSS
+    # Custom CSS — Thiết kế giao diện chuyên nghiệp, gọn gàng, hợp mắt
     # ------------------------------------------------------------------
     st.markdown("""
     <style>
-        /* Ẩn Streamlit branding */
+        /* Ẩn bớt Streamlit menu thừa */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
 
-        /* Chat messages */
-        .user-message {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 12px 16px;
-            border-radius: 18px 18px 4px 18px;
-            margin: 8px 0;
-            max-width: 80%;
-            margin-left: auto;
-            word-wrap: break-word;
-        }
-
-        .assistant-message {
-            background: linear-gradient(135deg, #1e3a5f 0%, #2d5986 100%);
-            color: #e8f4f8;
-            padding: 12px 16px;
-            border-radius: 18px 18px 18px 4px;
-            margin: 8px 0;
-            max-width: 85%;
-            word-wrap: break-word;
-        }
-
-        /* Header */
-        .app-header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            color: white;
-            padding: 20px 24px;
+        /* Header ứng dụng */
+        .main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(99, 102, 241, 0.04) 100%);
+            border: 1px solid rgba(37, 99, 235, 0.15);
+            padding: 16px 20px;
             border-radius: 12px;
             margin-bottom: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .main-header-title {
+            margin: 0;
+            font-size: 1.35rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .main-header-desc {
+            margin: 4px 0 0 0;
+            opacity: 0.75;
+            font-size: 0.85rem;
         }
 
-        /* Status badge */
-        .status-online {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: #00ff88;
-            border-radius: 50%;
-            margin-right: 6px;
-            animation: pulse 2s infinite;
+        /* Pill thông tin tính năng */
+        .feature-pill {
+            background: rgba(37, 99, 235, 0.1);
+            color: #2563eb;
+            border: 1px solid rgba(37, 99, 235, 0.2);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            text-align: center;
+            margin: 10px 0;
         }
 
-        .status-offline {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: #ff4757;
-            border-radius: 50%;
-            margin-right: 6px;
+        /* Status Badge nhỏ gọn */
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 4px 6px;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 600;
+        }
+        .status-badge.active {
+            background: rgba(34, 197, 94, 0.12);
+            color: #16a34a;
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+        .status-badge.inactive {
+            background: rgba(148, 163, 184, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(148, 163, 184, 0.2);
         }
 
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.4; }
-            100% { opacity: 1; }
-        }
-
-        /* Sidebar styling */
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-        }
-
-        /* Input area */
-        .stTextArea textarea {
+        /* Thẻ gợi ý câu hỏi ban đầu */
+        .welcome-card {
+            background: rgba(128, 128, 128, 0.05);
+            border: 1px solid rgba(128, 128, 128, 0.15);
             border-radius: 12px;
-            border: 1px solid rgba(102, 126, 234, 0.4);
-            background: rgba(255, 255, 255, 0.05);
-            color: white;
+            padding: 24px;
+            margin: 10px 0 20px 0;
+        }
+
+        /* Divider tinh gọn */
+        .compact-divider {
+            margin: 14px 0;
+            border: none;
+            border-top: 1px solid rgba(128, 128, 128, 0.15);
+        }
+
+        /* Streamlit chat message spacing */
+        [data-testid="stChatMessage"] {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 10px;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -669,43 +526,68 @@ def main() -> None:
     init_session_state()
     client = get_api_client()
 
-    # Sidebar
+    # Render sidebar
     render_sidebar(client)
 
-    # Header
-    st.markdown("""
-    <div class="app-header">
-        <h1 style="margin:0; font-size: 1.8rem;">🤖 Enterprise Digital Assistant</h1>
-        <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 0.9rem;">
-            Trợ lý AI doanh nghiệp · Powered by Ollama + LangChain · Local & Private
-        </p>
+    # Header chính
+    current_model_label = st.session_state["model"]
+    st.markdown(f"""
+    <div class="main-header">
+        <div>
+            <h1 class="main-header-title">🤖 Enterprise Digital Assistant</h1>
+            <p class="main-header-desc">
+                Trợ lý tra cứu quy chế, văn bản & điều hành doanh nghiệp · Tự động đối chiếu tài liệu nội bộ
+            </p>
+        </div>
+        <div>
+            <span style="font-size: 0.8rem; background: rgba(37,99,235,0.12); color: #2563eb; padding: 4px 10px; border-radius: 20px; font-weight: 600;">
+                🧠 {current_model_label}
+            </span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Warning nếu API offline
+    # Warning nếu API chưa kết nối
     if not st.session_state["api_online"]:
         st.warning(
-            "⚠️ **API Server chưa khởi động.** "
-            "Vui lòng chạy lệnh sau trong terminal:\n\n"
-            "```bash\nuvicorn app.main:app --host 0.0.0.0 --port 8000 --reload\n```",
+            "⚠️ **Backend FastAPI đang offline.** Vui lòng khởi động backend server bằng lệnh:\n\n"
+            "```bash\n.venv/bin/python run_api.py\n```",
             icon="⚠️",
         )
 
-    # Welcome message nếu chưa có messages
+    # Trạng thái rỗng: Lời chào & Gợi ý câu hỏi nhanh
     if not st.session_state["messages"]:
-        st.info(
-            "👋 **Xin chào!** Tôi là Enterprise Digital Assistant.\n\n"
-            "Hãy đặt câu hỏi hoặc yêu cầu tôi hỗ trợ bất kỳ tác vụ nào. "
-            "Tôi chạy hoàn toàn **local** — dữ liệu của bạn không rời khỏi máy tính.",
-            icon="ℹ️",
-        )
+        st.markdown("""
+        <div class="welcome-card">
+            <h3 style="margin: 0 0 8px 0; font-size: 1.15rem;">👋 Xin chào! Tôi có thể giúp gì cho bạn hôm nay?</h3>
+            <p style="margin: 0; opacity: 0.85; font-size: 0.92rem;">
+                Hệ thống đã được kích hoạt tính năng <b>RAG Tìm kiếm tài liệu</b> và <b>Query Expansion đa chiều</b>. 
+                Mọi câu hỏi sẽ tự động được tra cứu và đối chiếu chính xác từ kho tài liệu doanh nghiệp.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Chat messages
+        st.markdown("##### 💡 Câu hỏi gợi ý:")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("👥 Cơ cấu & Số lượng thành viên HĐQT?", use_container_width=True):
+                process_user_input(client, "Hội đồng quản trị có bao nhiêu thành viên?")
+                st.rerun()
+        with col2:
+            if st.button("📜 Thẩm quyền của Đại hội đồng cổ đông?", use_container_width=True):
+                process_user_input(client, "Quyền hạn và thẩm quyền của Đại hội đồng cổ đông là gì?")
+                st.rerun()
+        with col3:
+            if st.button("🔍 Nhiệm vụ của Ban Kiểm soát?", use_container_width=True):
+                process_user_input(client, "Nhiệm vụ và quyền hạn của Ban Kiểm soát?")
+                st.rerun()
+
+    # Render danh sách tin nhắn hiện tại
     render_chat_messages()
 
-    # Chat input
+    # Ô nhập tin nhắn
     if user_input := st.chat_input(
-        placeholder="Nhập câu hỏi của bạn... (Enter để gửi)",
+        placeholder="Đặt câu hỏi về quy chế, quy định hoặc thông tin doanh nghiệp... (Enter để gửi)",
         disabled=not st.session_state["api_online"],
     ):
         process_user_input(client, user_input)
