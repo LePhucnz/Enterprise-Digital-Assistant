@@ -464,15 +464,8 @@ def main() -> None:
             pointer-events: auto !important;
         }
 
-        /* Nút mũi tên mở lại thanh bên khi thu gọn — hiển thị nổi bật ở góc trên trái */
-        [data-testid="stExpandSidebarButton"],
-        button[data-testid="stExpandSidebarButton"],
-        [data-testid="stSidebarCollapsedControl"],
-        button[aria-label="Expand sidebar"],
-        button[aria-controls="stSidebar"] {
-            visibility: visible !important;
-            display: inline-flex !important;
-            opacity: 1 !important;
+        /* Nút floating tùy chỉnh để mở sidebar — luôn hiển thị */
+        #eda-sidebar-toggle-btn {
             position: fixed !important;
             top: 10px !important;
             left: 10px !important;
@@ -484,22 +477,13 @@ def main() -> None:
             padding: 6px 10px !important;
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
             cursor: pointer !important;
-            transition: all 150ms ease !important;
+            font-size: 16px !important;
+            line-height: 1 !important;
+            display: none; /* JS sẽ show khi sidebar đóng */
         }
-
-        [data-testid="stExpandSidebarButton"]:hover,
-        [data-testid="stSidebarCollapsedControl"]:hover,
-        button[aria-label="Expand sidebar"]:hover {
+        #eda-sidebar-toggle-btn:hover {
             background: #1d4ed8 !important;
             transform: scale(1.05) !important;
-        }
-
-        /* Icon bên trong nút mở thanh bên luôn màu trắng */
-        [data-testid="stExpandSidebarButton"] *,
-        [data-testid="stSidebarCollapsedControl"] *,
-        button[aria-label="Expand sidebar"] * {
-            color: #ffffff !important;
-            fill: #ffffff !important;
         }
 
         /* Header ứng dụng */
@@ -581,6 +565,57 @@ def main() -> None:
             border-radius: 10px;
         }
     </style>
+    """, unsafe_allow_html=True)
+
+    # ------------------------------------------------------------------
+    # JavaScript: Nút floating luôn hiện khi sidebar đóng
+    # Dùng window.parent để thoát khỏi iframe Streamlit
+    # ------------------------------------------------------------------
+    st.markdown("""
+    <script>
+    (function() {
+        var doc = window.parent.document;
+
+        // Inject style cho floating button vào parent document
+        if (!doc.getElementById('eda-sidebar-btn-style')) {
+            var s = doc.createElement('style');
+            s.id = 'eda-sidebar-btn-style';
+            s.innerHTML = '#eda-open-sidebar-btn { position:fixed; top:10px; left:10px; z-index:2147483647; background:#2563eb; color:#fff; border:none; border-radius:8px; padding:6px 12px; font-size:18px; cursor:pointer; box-shadow:0 4px 12px rgba(37,99,235,0.45); display:none; } #eda-open-sidebar-btn:hover { background:#1d4ed8; }';
+            doc.head.appendChild(s);
+        }
+
+        // Tạo nút floating nếu chưa có
+        if (!doc.getElementById('eda-open-sidebar-btn')) {
+            var btn = doc.createElement('button');
+            btn.id = 'eda-open-sidebar-btn';
+            btn.title = 'Mở thanh bên';
+            btn.innerHTML = '&#187;';
+            btn.onclick = function() {
+                // Click nút expand gốc của Streamlit
+                var expandBtn = doc.querySelector('[data-testid="stExpandSidebarButton"]') ||
+                                doc.querySelector('button[aria-label="Expand sidebar"]');
+                if (expandBtn) { expandBtn.click(); }
+            };
+            doc.body.appendChild(btn);
+        }
+
+        // MutationObserver: theo dõi khi sidebar đóng/mở
+        function checkSidebar() {
+            var floatBtn = doc.getElementById('eda-open-sidebar-btn');
+            if (!floatBtn) return;
+            var sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            var isClosed = !sidebar || sidebar.getAttribute('aria-expanded') === 'false' ||
+                           getComputedStyle(sidebar).transform.includes('matrix') ||
+                           (sidebar && sidebar.getBoundingClientRect().width < 50);
+            floatBtn.style.display = isClosed ? 'block' : 'none';
+        }
+
+        var observer = new MutationObserver(function() { checkSidebar(); });
+        observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'style', 'class'] });
+        checkSidebar();
+        setInterval(checkSidebar, 500);
+    })();
+    </script>
     """, unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
