@@ -154,3 +154,4 @@ def get_chat_model(
             num_predict=settings.llm_max_tokens,
             num_ctx=settings.llm_context_window,
         )
+
