@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     # LLM Parameters
     # ------------------------------------------------------------------
     llm_temperature: float = Field(
-        default=0.7,
+        default=0.0,
         ge=0.0,
         le=2.0,
         description="Temperature cho LLM (0.0 = deterministic, 2.0 = creative).",
@@ -100,9 +100,9 @@ class Settings(BaseSettings):
         description="Nucleus sampling — chỉ lấy các token có cumulative probability <= top_p.",
     )
     llm_max_tokens: int = Field(
-        default=2048,
+        default=1024,
         gt=0,
-        description="Số token tối đa trong response.",
+        description="Số token tối đa trong response (tránh lặp vô tận).",
     )
     llm_streaming: bool = Field(
         default=True,
@@ -159,7 +159,7 @@ class Settings(BaseSettings):
         description="Số ký tự overlap giữa các chunk.",
     )
     retriever_top_k: int = Field(
-        default=4,
+        default=6,
         gt=0,
         description="Số lượng document chunks trả về từ retriever.",
     )

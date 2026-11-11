@@ -88,7 +88,7 @@ class RAGChain(BaseChain):
         settings = get_settings()
 
         _model = model or settings.ollama_model
-        _temperature = temperature if temperature is not None else 0.2
+        _temperature = temperature if temperature is not None else 0.0
 
         # Khởi tạo LLM qua factory (hỗ trợ cả Ollama, OpenAI/OpenRouter, Gemini)
         llm = get_chat_model(

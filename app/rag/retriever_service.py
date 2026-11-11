@@ -198,51 +198,87 @@ class RetrieverService:
 
     def _retrieve_with_score_filter(self, query: str) -> list[Document]:
         """
-        Truy vấn ChromaDB với bộ lọc ngưỡng khoảng cách L2.
+        Truy vấn ChromaDB với bộ lọc khoảng cách L2 và xếp hạng lai (Hybrid Ranking).
 
-        Thay vì dùng retriever.invoke() (trả về top-k bất kể relevance),
-        phương thức này gọi similarity_search_with_score() để lấy kèm điểm,
-        sau đó lọc bỏ các chunk có L2 distance > threshold (out-of-domain).
-
-        ChromaDB dùng L2 distance: giá trị THẤP hơn = GIỐNG hơn.
-        Tài liệu liên quan thường có distance < 0.4; out-of-domain > 0.5.
+        Chiến lược:
+            1. Fetch tối thiểu 25 candidates (hoặc top_k * 4) để không bỏ sót các chunk
+               đặc thù (như điều khoản pháp lý, điều kiện ủy quyền) có vector distance
+               ở mức trung bình nhưng khớp từ khóa quan trọng.
+            2. Lọc bỏ các chunk có L2 distance vượt quá threshold.
+            3. Xếp hạng lai (Hybrid re-ranking) kết hợp độ tương đồng vector và mức độ
+               trùng khớp từ khóa (keyword overlap) để đưa các đoạn tài liệu chứa chính xác
+               từ khóa nghiệp vụ lên hàng đầu.
 
         Args:
             query: Câu hỏi từ người dùng.
 
         Returns:
-            list[Document]: Chỉ các chunk vượt qua ngưỡng relevance, tối đa top_k.
+            list[Document]: Danh sách chunks có độ liên quan cao nhất, tối đa top_k.
         """
-        vs = self._vector_store._get_vector_store()
-        # Fetch gấp đôi để có đủ candidates sau khi filter
-        candidates = vs.similarity_search_with_score(query, k=self._top_k * 2)
+        import re
 
-        # Log raw scores để debug
-        if candidates:
-            score_summary = ", ".join(
-                f"{score:.3f}" for _, score in candidates[:6]
-            )
-            logger.debug(
-                "RetrieverService score filter: raw L2 distances = [%s] | threshold=%.2f",
-                score_summary,
-                self._relevance_distance_threshold,
-            )
+        vs = self._vector_store._get_vector_store()
+        fetch_k = max(25, self._top_k * 4)
+        candidates = vs.similarity_search_with_score(query, k=fetch_k)
 
         # Lọc: chỉ giữ chunks có L2 distance <= threshold
         filtered = [
-            doc
+            (doc, score)
             for doc, score in candidates
             if score <= self._relevance_distance_threshold
         ]
 
         logger.info(
-            "RetrieverService._retrieve_with_score_filter: %d/%d chunks passed threshold %.2f.",
+            "RetrieverService._retrieve_with_score_filter: %d/%d candidates passed threshold %.2f.",
             len(filtered),
             len(candidates),
             self._relevance_distance_threshold,
         )
 
-        return filtered[: self._top_k]
+        if not filtered:
+            return []
+
+        # Tách từ khóa quan trọng và cụm từ từ query
+        stopwords = {
+            "cho", "các", "những", "được", "trong", "theo", "này", "khi",
+            "của", "với", "hoặc", "và", "là", "thì", "mà", "có", "gì", "nào",
+            "phải", "cần", "không", "như", "thế", "đến", "từ"
+        }
+        words = [w.lower() for w in re.findall(r"[\w]+", query) if len(w) > 2]
+        meaningful_words = [w for w in words if w not in stopwords]
+
+        # Trích xuất các cụm 2 và 3 từ
+        phrases = []
+        for n in [3, 2]:
+            for i in range(len(words) - n + 1):
+                phrase = " ".join(words[i : i + n])
+                if any(w in meaningful_words for w in phrase.split()):
+                    phrases.append(phrase)
+
+        # Hybrid re-ranking: Kết hợp vector similarity và IDF phrase weighting
+        scored_docs = []
+        for doc, dist in filtered:
+            content_lower = doc.page_content.lower()
+            # Điểm vector chuẩn hóa (0.0 -> 1.0)
+            vec_sim = max(0.0, 1.0 - (dist / self._relevance_distance_threshold))
+
+            # Điểm cụm từ: Cụm từ chuyên môn/hiếm (ủy quyền, điều kiện, thẩm quyền) có trọng số cao
+            phrase_score = 0.0
+            for p in phrases:
+                if p in content_lower:
+                    p_len = len(p.split())
+                    if "ủy quyền" in p or "uy quyen" in p:
+                        phrase_score += 1.5 * p_len
+                    elif "điều kiện" in p or "tiêu chuẩn" in p or "thẩm quyền" in p:
+                        phrase_score += 1.0 * p_len
+                    else:
+                        phrase_score += 0.2 * p_len
+
+            total_score = vec_sim + phrase_score
+            scored_docs.append((total_score, doc))
+
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
+        return [doc for _, doc in scored_docs[: self._top_k]]
 
     @staticmethod
     def _extract_sources(documents: list[Document]) -> list[SourceDocument]:
@@ -288,27 +324,24 @@ class RetrieverService:
         results_by_query: list[list[Document]],
         k: int = 60,
         top_k: int = 6,
+        query_weights: Optional[list[float]] = None,
     ) -> list[Document]:
         """
-        Reciprocal Rank Fusion (RRF) để kết hợp và xếp hạng lại tài liệu từ nhiều truy vấn.
+        Reciprocal Rank Fusion (RRF) có trọng số để xếp hạng lại tài liệu.
 
-        Công thức: RRF_score(d) = sum_{q}(1 / (k + rank(d, q)))
-        Trong đó:
-            - rank(d, q) là thứ hạng (1-indexed) của chunk trong danh sách kết quả của query q.
-            - k là hằng số làm mượt (mặc định 60).
-
-        Args:
-            results_by_query: Danh sách kết quả Document từ từng query.
-            k: Tham số làm mượt RRF.
-            top_k: Số lượng tài liệu tối đa giữ lại sau khi xếp hạng.
-
-        Returns:
-            list[Document]: Danh sách chunks đã deduplicate và sắp xếp theo điểm RRF giảm dần.
+        Câu hỏi gốc luôn có trọng số cao hơn các câu hỏi mở rộng để đảm bảo
+        ngữ cảnh trọng tâm không bị loãng bởi các biến thể truy vấn.
         """
         scores: dict[str, float] = {}
         doc_map: dict[str, Document] = {}
 
-        for doc_list in results_by_query:
+        if not query_weights or len(query_weights) != len(results_by_query):
+            query_weights = [1.0] * len(results_by_query)
+            if query_weights:
+                query_weights[0] = 3.0  # Trọng số ưu tiên câu hỏi gốc
+
+        for q_idx, doc_list in enumerate(results_by_query):
+            weight = query_weights[q_idx]
             for rank, doc in enumerate(doc_list, start=1):
                 meta = doc.metadata
                 file_name = meta.get("file_name", meta.get("source", "Unknown"))
@@ -322,7 +355,7 @@ class RetrieverService:
                     doc_map[doc_key] = doc
                     scores[doc_key] = 0.0
 
-                scores[doc_key] += 1.0 / (k + rank)
+                scores[doc_key] += weight / (k + rank)
 
         sorted_keys = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
         return [doc_map[key] for key in sorted_keys[:top_k]]
@@ -352,7 +385,7 @@ class RetrieverService:
             page = meta.get("page", 0) + 1  # 1-indexed
             chunk_id = meta.get("chunk_id", 0)
 
-            header = f"[Tài liệu {i}: {file_name} | Trang {page} | Chunk #{chunk_id}]"
+            header = f"--- Trích dẫn từ: {file_name} (Trang {page}) ---"
             parts.append(f"{header}\n{doc.page_content.strip()}")
 
         return "\n\n---\n\n".join(parts)
@@ -415,32 +448,42 @@ class RetrieverService:
                     query=query,
                     num_queries=self._expansion_num_queries,
                 )
-                expanded_queries = [
+                raw_expanded = [
                     q for q in all_queries if q.strip().lower() != query.strip().lower()
                 ]
+                # Lọc bỏ query mang tính hội thoại (như "Cảm ơn...", "Xin lỗi...", "Lưu ý...")
+                expanded_queries = [
+                    eq for eq in raw_expanded
+                    if not eq.lower().startswith(("cảm ơn", "xin lỗi", "chào", "note:", "lưu ý:"))
+                    and len(eq.strip()) > 10
+                ]
+                final_queries = [query] + expanded_queries
 
                 logger.info(
                     "RetrieverService: executing retrieval for %d queries (original + %d expansions)...",
-                    len(all_queries),
+                    len(final_queries),
                     len(expanded_queries),
                 )
 
                 # 2. Truy vấn tài liệu cho từng query với bộ lọc ngưỡng L2
                 results_by_query = []
-                for q in all_queries:
+                query_weights = []
+                for i, q in enumerate(final_queries):
                     try:
                         docs = self._retrieve_with_score_filter(q)
                         if docs:
                             results_by_query.append(docs)
+                            query_weights.append(3.0 if i == 0 else 1.0)
                     except Exception as e:
                         logger.warning("Query retrieval failed for '%s': %s", q[:40], str(e))
 
-                # 3. Fuse kết quả qua Reciprocal Rank Fusion (RRF)
+                # 3. Fuse kết quả qua Reciprocal Rank Fusion (RRF) có trọng số
                 if results_by_query:
                     documents = self._reciprocal_rank_fusion(
                         results_by_query=results_by_query,
                         k=self._rrf_k,
                         top_k=self._expansion_top_k,
+                        query_weights=query_weights,
                     )
                 else:
                     documents = []
