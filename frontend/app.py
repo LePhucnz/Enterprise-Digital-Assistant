@@ -15,6 +15,7 @@ import uuid
 from typing import Optional
 
 import streamlit as st
+import streamlit.components.v1 as st_components
 
 from frontend.api_client import APIClient
 
@@ -569,18 +570,36 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # JavaScript: Nút floating luôn hiện khi sidebar đóng
-    # Dùng window.parent để thoát khỏi iframe Streamlit
+    # Dùng st.components.v1.html + window.parent để thoát khỏi iframe
     # ------------------------------------------------------------------
-    st.markdown("""
+    st_components.html("""
     <script>
     (function() {
         var doc = window.parent.document;
 
-        // Inject style cho floating button vào parent document
+        // Inject style vào parent document (chỉ 1 lần)
         if (!doc.getElementById('eda-sidebar-btn-style')) {
             var s = doc.createElement('style');
             s.id = 'eda-sidebar-btn-style';
-            s.innerHTML = '#eda-open-sidebar-btn { position:fixed; top:10px; left:10px; z-index:2147483647; background:#2563eb; color:#fff; border:none; border-radius:8px; padding:6px 12px; font-size:18px; cursor:pointer; box-shadow:0 4px 12px rgba(37,99,235,0.45); display:none; } #eda-open-sidebar-btn:hover { background:#1d4ed8; }';
+            s.innerHTML = [
+                '#eda-open-sidebar-btn {',
+                '  position: fixed !important;',
+                '  top: 10px !important;',
+                '  left: 10px !important;',
+                '  z-index: 2147483647 !important;',
+                '  background: #2563eb !important;',
+                '  color: #fff !important;',
+                '  border: none !important;',
+                '  border-radius: 8px !important;',
+                '  padding: 5px 11px !important;',
+                '  font-size: 20px !important;',
+                '  line-height: 1 !important;',
+                '  cursor: pointer !important;',
+                '  box-shadow: 0 4px 14px rgba(37,99,235,0.5) !important;',
+                '  display: none;',
+                '}',
+                '#eda-open-sidebar-btn:hover { background: #1d4ed8 !important; transform: scale(1.08); }'
+            ].join('');
             doc.head.appendChild(s);
         }
 
@@ -588,10 +607,9 @@ def main() -> None:
         if (!doc.getElementById('eda-open-sidebar-btn')) {
             var btn = doc.createElement('button');
             btn.id = 'eda-open-sidebar-btn';
-            btn.title = 'Mở thanh bên';
-            btn.innerHTML = '&#187;';
+            btn.title = 'Mo thanh ben';
+            btn.textContent = '\u00BB';
             btn.onclick = function() {
-                // Click nút expand gốc của Streamlit
                 var expandBtn = doc.querySelector('[data-testid="stExpandSidebarButton"]') ||
                                 doc.querySelector('button[aria-label="Expand sidebar"]');
                 if (expandBtn) { expandBtn.click(); }
@@ -599,24 +617,32 @@ def main() -> None:
             doc.body.appendChild(btn);
         }
 
-        // MutationObserver: theo dõi khi sidebar đóng/mở
+        // Kiểm tra trạng thái sidebar và show/hide floating button
         function checkSidebar() {
             var floatBtn = doc.getElementById('eda-open-sidebar-btn');
             if (!floatBtn) return;
             var sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            var isClosed = !sidebar || sidebar.getAttribute('aria-expanded') === 'false' ||
-                           getComputedStyle(sidebar).transform.includes('matrix') ||
-                           (sidebar && sidebar.getBoundingClientRect().width < 50);
+            var isClosed = false;
+            if (!sidebar) {
+                isClosed = true;
+            } else {
+                var w = sidebar.getBoundingClientRect().width;
+                isClosed = (w < 50);
+            }
             floatBtn.style.display = isClosed ? 'block' : 'none';
         }
 
-        var observer = new MutationObserver(function() { checkSidebar(); });
-        observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'style', 'class'] });
+        // MutationObserver + polling 400ms để không bỏ sót
+        var observer = new MutationObserver(checkSidebar);
+        observer.observe(doc.body, {
+            childList: true, subtree: true,
+            attributes: true, attributeFilter: ['style', 'class', 'aria-expanded']
+        });
         checkSidebar();
-        setInterval(checkSidebar, 500);
+        setInterval(checkSidebar, 400);
     })();
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0)
 
     # ------------------------------------------------------------------
     init_session_state()
