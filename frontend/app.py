@@ -441,24 +441,65 @@ def main() -> None:
         footer {visibility: hidden;}
         [data-testid="stAppDeployButton"] {display: none !important;}
 
-        /* Giữ header trong suốt để không che khuất nội dung */
-        header[data-testid="stHeader"] {
-            background: transparent !important;
+        /* Tạo khoảng đệm trên cùng để nội dung không che khuất thanh công cụ */
+        .block-container {
+            padding-top: 3.5rem !important;
         }
 
-        /* Đảm bảo nút mũi tên mở lại thanh bên luôn hiển thị rõ ràng khi thu gọn */
-        [data-testid="stSidebarCollapsedControl"] {
+        /* Đảm bảo header và toolbar luôn nhận sự kiện chuột */
+        header[data-testid="stHeader"],
+        .stAppHeader {
+            background: transparent !important;
+            display: block !important;
+            visibility: visible !important;
+            height: 3.5rem !important;
+            z-index: 9999 !important;
+            pointer-events: auto !important;
+        }
+
+        [data-testid="stToolbar"],
+        .stAppToolbar {
             visibility: visible !important;
             display: flex !important;
-            z-index: 99999 !important;
-            background: rgba(37, 99, 235, 0.1) !important;
-            border: 1px solid rgba(37, 99, 235, 0.2) !important;
-            border-radius: 8px !important;
-            margin-top: 8px !important;
-            margin-left: 8px !important;
+            pointer-events: auto !important;
         }
-        [data-testid="stSidebarCollapsedControl"]:hover {
-            background: rgba(37, 99, 235, 0.2) !important;
+
+        /* Nút mũi tên mở lại thanh bên khi thu gọn — hiển thị nổi bật ở góc trên trái */
+        [data-testid="stExpandSidebarButton"],
+        button[data-testid="stExpandSidebarButton"],
+        [data-testid="stSidebarCollapsedControl"],
+        button[aria-label="Expand sidebar"],
+        button[aria-controls="stSidebar"] {
+            visibility: visible !important;
+            display: inline-flex !important;
+            opacity: 1 !important;
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            z-index: 999999 !important;
+            background: #2563eb !important;
+            color: #ffffff !important;
+            border: 1px solid #1d4ed8 !important;
+            border-radius: 8px !important;
+            padding: 6px 10px !important;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
+            cursor: pointer !important;
+            transition: all 150ms ease !important;
+        }
+
+        [data-testid="stExpandSidebarButton"]:hover,
+        [data-testid="stSidebarCollapsedControl"]:hover,
+        button[aria-label="Expand sidebar"]:hover {
+            background: #1d4ed8 !important;
+            transform: scale(1.05) !important;
+        }
+
+        /* Icon bên trong nút mở thanh bên luôn màu trắng */
+        [data-testid="stExpandSidebarButton"] *,
+        [data-testid="stSidebarCollapsedControl"] *,
+        button[aria-label="Expand sidebar"] * {
+            color: #ffffff !important;
+            fill: #ffffff !important;
         }
 
         /* Header ứng dụng */
