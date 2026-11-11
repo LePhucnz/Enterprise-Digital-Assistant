@@ -429,7 +429,7 @@ def main() -> None:
         page_title="Enterprise Digital Assistant",
         page_icon="🤖",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
     # ------------------------------------------------------------------
@@ -465,26 +465,27 @@ def main() -> None:
             pointer-events: auto !important;
         }
 
-        /* Nút floating tùy chỉnh để mở sidebar — luôn hiển thị */
-        #eda-sidebar-toggle-btn {
-            position: fixed !important;
-            top: 10px !important;
-            left: 10px !important;
-            z-index: 999999 !important;
+        /* Nút native Streamlit để mở sidebar — style nổi bật, luôn có mặt khi sidebar đóng */
+        [data-testid="stExpandSidebarButton"] button,
+        [data-testid="stExpandSidebarButton"] {
             background: #2563eb !important;
             color: #ffffff !important;
-            border: 1px solid #1d4ed8 !important;
             border-radius: 8px !important;
-            padding: 6px 10px !important;
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
+            padding: 4px 10px !important;
+            border: none !important;
+            box-shadow: 0 3px 10px rgba(37,99,235,0.45) !important;
             cursor: pointer !important;
-            font-size: 16px !important;
-            line-height: 1 !important;
-            display: none; /* JS sẽ show khi sidebar đóng */
+            opacity: 1 !important;
+            visibility: visible !important;
         }
-        #eda-sidebar-toggle-btn:hover {
+        [data-testid="stExpandSidebarButton"] button:hover,
+        [data-testid="stExpandSidebarButton"]:hover {
             background: #1d4ed8 !important;
-            transform: scale(1.05) !important;
+            transform: scale(1.08) !important;
+        }
+        [data-testid="stExpandSidebarButton"] svg {
+            fill: #ffffff !important;
+            color: #ffffff !important;
         }
 
         /* Header ứng dụng */
@@ -567,67 +568,6 @@ def main() -> None:
         }
     </style>
     """, unsafe_allow_html=True)
-
-    # ------------------------------------------------------------------
-    # JavaScript: Nút floating toggle sidebar — LUÔN hiển thị
-    # st.components.v1.html đảm bảo script thực sự chạy (không bị strip)
-    # ------------------------------------------------------------------
-    st_components.html("""
-    <script>
-    (function() {
-        // Thử truy cập window.parent — cùng origin nên được phép
-        var doc;
-        try { doc = window.parent.document; } catch(e) { return; }
-
-        // Inject CSS cho nút floating vào parent <head> (chỉ 1 lần)
-        if (!doc.getElementById('eda-toggle-btn-css')) {
-            var style = doc.createElement('style');
-            style.id = 'eda-toggle-btn-css';
-            style.textContent =
-                '#eda-toggle-btn {'
-                + '  position: fixed !important;'
-                + '  top: 12px !important;'
-                + '  left: 12px !important;'
-                + '  z-index: 2147483647 !important;'
-                + '  background: #2563eb !important;'
-                + '  color: #fff !important;'
-                + '  border: none !important;'
-                + '  border-radius: 8px !important;'
-                + '  padding: 4px 10px 5px !important;'
-                + '  font-size: 22px !important;'
-                + '  line-height: 1.2 !important;'
-                + '  cursor: pointer !important;'
-                + '  box-shadow: 0 3px 10px rgba(37,99,235,0.45) !important;'
-                + '  display: block !important;'
-                + '  opacity: 1 !important;'
-                + '}'
-                + '#eda-toggle-btn:hover {'
-                + '  background: #1d4ed8 !important;'
-                + '  transform: scale(1.1) !important;'
-                + '}';
-            doc.head.appendChild(style);
-        }
-
-        // Tạo nút nếu chưa có (chỉ 1 lần, tồn tại xuyên suốt)
-        if (!doc.getElementById('eda-toggle-btn')) {
-            var btn = doc.createElement('button');
-            btn.id = 'eda-toggle-btn';
-            btn.title = 'Mo / Dong thanh ben';
-            btn.textContent = '\u00BB';
-            btn.addEventListener('click', function() {
-                // Click nút gốc của Streamlit để toggle sidebar
-                var nativeBtn =
-                    doc.querySelector('[data-testid="stExpandSidebarButton"]') ||
-                    doc.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
-                    doc.querySelector('button[aria-label="Expand sidebar"]') ||
-                    doc.querySelector('button[aria-label="Collapse sidebar"]');
-                if (nativeBtn) nativeBtn.click();
-            });
-            doc.body.appendChild(btn);
-        }
-    })();
-    </script>
-    """, height=1, scrolling=False)
 
     # ------------------------------------------------------------------
     init_session_state()
