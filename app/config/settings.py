@@ -6,7 +6,7 @@ Mọi thông số cấu hình đều tập trung tại đây — không hardcode
 """
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     Tất cả giá trị được đọc từ file .env.
     Dùng `get_settings()` để lấy instance (cached singleton).
     """
+
+    # ------------------------------------------------------------------
+    # LLM Provider
+    # ------------------------------------------------------------------
+    llm_provider: Literal["ollama", "openai", "gemini"] = Field(
+        default="ollama",
+        description="Provider LLM mặc định: 'ollama', 'openai', hoặc 'gemini'.",
+    )
 
     # ------------------------------------------------------------------
     # Ollama
@@ -34,6 +42,46 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = Field(
         default="nomic-embed-text:latest",
         description="Model dùng để tạo embeddings.",
+    )
+
+    # ------------------------------------------------------------------
+    # OpenAI
+    # ------------------------------------------------------------------
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="API Key cho OpenAI.",
+    )
+    openai_model: str = Field(
+        default="gpt-4o-mini",
+        description="Model LLM OpenAI.",
+    )
+    openai_base_url: Optional[str] = Field(
+        default="https://api.openai.com/v1",
+        description="Base URL của OpenAI.",
+    )
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Model embedding của OpenAI.",
+    )
+
+    # ------------------------------------------------------------------
+    # Google Gemini
+    # ------------------------------------------------------------------
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        description="API Key cho Google Gemini.",
+    )
+    google_api_key: Optional[str] = Field(
+        default=None,
+        description="Alias API Key cho Google Gemini (LangChain / Google SDK).",
+    )
+    gemini_model: str = Field(
+        default="gemini-1.5-flash",
+        description="Model LLM Google Gemini.",
+    )
+    gemini_embedding_model: str = Field(
+        default="text-embedding-004",
+        description="Model embedding của Google Gemini.",
     )
 
     # ------------------------------------------------------------------
