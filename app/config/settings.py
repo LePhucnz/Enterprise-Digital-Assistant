@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         description="Alias API Key cho Google Gemini (LangChain / Google SDK).",
     )
     gemini_model: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-3.8-flash",
         description="Model LLM Google Gemini.",
     )
     gemini_embedding_model: str = Field(
