@@ -57,13 +57,20 @@ Dưới đây là các đoạn tài liệu liên quan được truy xuất từ 
 {context}
 </context>
 
-## Quy tắc bắt buộc
+## Quy tắc bắt buộc — TUÂN THỦ NGHIÊM NGẶT
 
 ### Về nguồn thông tin
-1. **CHỈ** sử dụng thông tin trong `<context>` để trả lời. Không suy đoán hay bịa đặt.
-2. **NẾU** context trống hoặc không chứa thông tin liên quan, trả lời chính xác:
-   *"Tôi không tìm thấy thông tin về vấn đề này trong tài liệu hiện có. Bạn có thể upload thêm tài liệu liên quan hoặc hỏi trực tiếp mà không cần RAG."*
-3. **KHÔNG** trả lời dựa trên kiến thức huấn luyện nếu context không hỗ trợ.
+1. **CHỈ** sử dụng thông tin **có mặt rõ ràng** trong `<context>` để trả lời. TUYỆT ĐỐI không suy đoán, bịa đặt hay dùng kiến thức huấn luyện.
+2. **NẾU** context trống HOẶC không chứa thông tin **trực tiếp** trả lời câu hỏi, hãy trả lời CHÍNH XÁC câu này:
+   *"Tài liệu hiện có trong hệ thống không chứa thông tin về vấn đề này. Vui lòng upload tài liệu liên quan để được giải đáp."*
+   KHÔNG được thêm bất kỳ nội dung nào khác.
+3. **KHÔNG** trả lời dựa trên kiến thức huấn luyện nếu context không hỗ trợ — dù câu hỏi có vẻ đơn giản hay phổ biến.
+
+### Ví dụ từ chối đúng cách
+Câu hỏi: "Chính sách nghỉ phép là gì?"
+Context: (tài liệu về HĐQT, ĐHĐCĐ, Ban Kiểm soát)
+Trả lời đúng: "Tài liệu hiện có trong hệ thống không chứa thông tin về vấn đề này. Vui lòng upload tài liệu liên quan để được giải đáp."
+Trả lời SAI: "Nhân viên có 12 ngày nghỉ phép mỗi năm..." ← TUYỆT ĐỐI KHÔNG làm vậy.
 
 ### Về trích dẫn
 4. Khi trả lời, ghi rõ nguồn tài liệu tham chiếu ở cuối (nếu có):
@@ -73,7 +80,17 @@ Dưới đây là các đoạn tài liệu liên quan được truy xuất từ 
 ### Về phong cách
 6. **Ngôn ngữ**: Luôn trả lời bằng **tiếng Việt**, trừ khi người dùng yêu cầu khác.
 7. **Chuyên nghiệp**: Ngôn ngữ lịch sự, rõ ràng, có cấu trúc.
-8. **Súc tích**: Trả lời đúng trọng tâm, dùng danh sách khi liệt kê nhiều điểm.\
+8. **Súc tích & Mạch lạc**: Trả lời đúng trọng tâm, dùng danh sách khi liệt kê nhiều điểm.\
+"""
+
+# ===========================================================
+# Query Expansion Prompt — Dùng để mở rộng góc nhìn tìm kiếm
+# ===========================================================
+
+_QUERY_EXPANSION_SYSTEM_PROMPT = """\
+Nhiệm vụ: Tạo ra {num_queries} câu hỏi tìm kiếm thay thế cho câu hỏi dưới đây.
+Chỉ dùng các từ ngữ có thể xuất hiện trong tài liệu doanh nghiệp nội bộ (quy chế, quy định, điều lệ, nghị quyết, thẩm quyền, nghĩa vụ, hội đồng, đại hội, ban kiểm soát...).
+Mỗi câu hỏi trên một dòng riêng. Không đánh số. Không dùng gạch đầu dòng. Không giải thích.\
 """
 
 
@@ -136,4 +153,21 @@ def get_rag_prompt_template() -> ChatPromptTemplate:
         ("system", _RAG_SYSTEM_PROMPT),
         MessagesPlaceholder(variable_name="history"),
         ("human", "{input}"),
+    ])
+
+
+def get_query_expansion_prompt_template() -> ChatPromptTemplate:
+    """
+    Trả về ChatPromptTemplate cho Query Expansion.
+
+    Nhận 2 biến:
+        - input: Câu hỏi ban đầu của người dùng.
+        - num_queries: Số lượng biến thể câu hỏi cần sinh.
+
+    Returns:
+        ChatPromptTemplate: Prompt template để pipe vào LLM.
+    """
+    return ChatPromptTemplate.from_messages([
+        ("system", _QUERY_EXPANSION_SYSTEM_PROMPT),
+        ("human", "Câu hỏi: {input}\nTạo {num_queries} câu hỏi tìm kiếm thay thế:"),
     ])

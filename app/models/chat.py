@@ -55,6 +55,9 @@ class ChatRequest(BaseModel):
         default=None, ge=0.0, le=2.0, description="Độ sáng tạo của mô hình (0.0 - 2.0)"
     )
     use_rag: bool = Field(default=False, description="Kích hoạt tìm kiếm RAG từ Knowledge Base")
+    enable_query_expansion: Optional[bool] = Field(
+        default=None, description="Bật/tắt kỹ thuật Query Expansion cho câu hỏi này (None = dùng cấu hình hệ thống)"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -65,6 +68,9 @@ class ChatResponse(BaseModel):
     model: str = Field(description="Model LLM đã thực hiện phản hồi")
     sources: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Danh sách các trích dẫn tài liệu tham chiếu (nếu bật RAG)"
+    )
+    expanded_queries: Optional[List[str]] = Field(
+        default=None, description="Danh sách các truy vấn mở rộng được sinh bởi Query Expansion"
     )
 
 
@@ -98,5 +104,8 @@ class StreamChunk(BaseModel):
     is_done: bool = Field(default=False, description="Đánh dấu đã hoàn tất sinh câu trả lời")
     sources: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Danh sách nguồn tài liệu đính kèm ở chunk cuối"
+    )
+    expanded_queries: Optional[List[str]] = Field(
+        default=None, description="Danh sách các truy vấn mở rộng được sinh bởi Query Expansion"
     )
     error: Optional[str] = Field(default=None, description="Thông báo lỗi nếu có gián đoạn")

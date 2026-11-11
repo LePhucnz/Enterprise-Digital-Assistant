@@ -53,8 +53,17 @@ Hệ thống RAG hoạt động theo kiến trúc phân tầng (Clean Architectu
 Khi user gửi tin nhắn với `use_rag=True`:
 
 1. **Nhận Query**: `ChatService` kiểm tra trạng thái và định tuyến sang RAG workflow.
-2. **Truy vấn Vector DB**: `RetrieverService` nhận query và cấu hình search từ `settings`.
-3. **Chiến lược Tìm kiếm (Search Strategies)**:
+2. **Kỹ thuật Query Expansion (Mở rộng truy vấn)**:
+   - Khi `enable_query_expansion=True` (mặc định được bật):
+     - `QueryExpander` sử dụng LLM để phân tích câu hỏi ban đầu và tự động sinh ra $N$ câu hỏi/truy vấn biến thể (paraphrasing, góc nhìn nghiệp vụ, quy chuẩn doanh nghiệp, khía cạnh liên quan).
+     - Truy vấn ChromaDB song song cho câu hỏi gốc và tất cả các biến thể đã mở rộng.
+     - Áp dụng thuật toán **Reciprocal Rank Fusion (RRF)**:
+       $$RRF\_score(d) = \sum_{q \in Q} \frac{1}{k + rank(d, q)}$$
+       Trong đó: $k = 60$. Các chunk xuất hiện ở nhiều góc nhìn truy vấn sẽ được boost điểm ưu tiên cao hơn, trong khi các chunk từ các khía cạnh mở rộng riêng biệt vẫn được đưa vào top context.
+     - Lọc trùng (deduplication) triệt để và lấy top `rag_expansion_top_k` chunks tối ưu nhất.
+   - Khi `enable_query_expansion=False`:
+     - Truy vấn trực tiếp một lần duy nhất với câu hỏi gốc.
+3. **Chiến lược Tìm kiếm cơ sở (Search Strategies)**:
    - **Similarity Search**: Cosine similarity chuẩn để lấy top_k chunks tương đồng nhất.
    - **MMR (Max Marginal Relevance)**: Tối ưu hóa tính tương đồng đồng thời tối đa hóa sự đa dạng của thông tin để tránh trùng lặp nội dung.
    - **Similarity Score Threshold**: Lọc bỏ các document chunks có độ tương đồng thấp hơn `rag_score_threshold`.
@@ -62,7 +71,7 @@ Khi user gửi tin nhắn với `use_rag=True`:
    - `_extract_sources()` đọc qua metadata của các chunks tìm được.
    - Trích xuất: `document` (file_name), `page` (được chuyển từ 0-indexed sang 1-indexed), `chunk_id`.
    - Lọc trùng (deduplicate) theo cặp `(document, page)`.
-5. **Đóng gói Kết quả**: Trả về `RetrievalResult` gồm danh sách documents, structured sources, context string (đã format có header) và thời gian thực hiện.
+5. **Đóng gói Kết quả**: Trả về `RetrievalResult` gồm danh sách documents, structured sources, context string (đã format có header), danh sách `expanded_queries` và thời gian thực hiện.
 
 ---
 

@@ -28,6 +28,12 @@ Thumbs.db
 # Chroma Database
 chroma_db/
 
+# Vector DB (ChromaDB persistent storage — rebuild locally)
+vector_db/
+
+# UI/UX skill (external tool, not part of project)
+ui-ux-design-pro-skill-main/
+
 # Ollama cache (if exists)
 ollama/
 
@@ -77,3 +83,9 @@ cache/
 
 # Windows
 desktop.ini
+
+# Vector DB (ChromaDB persistent storage — rebuild locally)
+vector_db/
+
+# UI/UX skill (external tool, not part of project)
+ui-ux-design-pro-skill-main/

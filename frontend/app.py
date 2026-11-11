@@ -33,6 +33,7 @@ def init_session_state() -> None:
         "temperature": 0.7,
         "streaming": True,
         "use_rag": False,
+        "enable_query_expansion": True,
         "api_online": False,
     }
     for key, value in defaults.items():
@@ -133,6 +134,15 @@ def render_sidebar(client: APIClient) -> None:
             help="Bật RAG để tìm kiếm thông tin trong tài liệu đã upload",
         )
         st.session_state["use_rag"] = use_rag
+
+        if use_rag:
+            enable_query_expansion = st.toggle(
+                "🔍 Query Expansion (Mở rộng truy vấn)",
+                value=st.session_state["enable_query_expansion"],
+                key="query_expansion_toggle",
+                help="Tự động mở rộng câu hỏi thành nhiều góc nhìn/thuật ngữ để tìm kiếm tài liệu bao quát hơn, tránh cứng nhắc.",
+            )
+            st.session_state["enable_query_expansion"] = enable_query_expansion
 
         st.divider()
 
@@ -326,6 +336,22 @@ def _handle_document_delete(client: APIClient, doc_id: str, file_name: str) -> N
 # Chat Interface
 # ------------------------------------------------------------------
 
+def _render_query_expansion(expanded_queries: list[str]) -> None:
+    """
+    Render danh sách các câu truy vấn mở rộng được sinh bởi Query Expansion.
+
+    Args:
+        expanded_queries: List câu hỏi/từ khóa biến thể.
+    """
+    if not expanded_queries:
+        return
+
+    with st.expander("🔍 Góc nhìn tìm kiếm mở rộng (Query Expansion)", expanded=False):
+        st.caption("AI đã tự động mở rộng câu hỏi thành các biến thể sau để tăng độ bao quát:")
+        for idx, q in enumerate(expanded_queries, 1):
+            st.markdown(f"**{idx}.** *{q}*")
+
+
 def _render_message_sources(sources: list[dict]) -> None:
     """
     Render danh sách nguồn tài liệu tham chiếu (citations).
@@ -352,6 +378,7 @@ def render_chat_messages() -> None:
         role = msg["role"]
         content = msg["content"]
         sources = msg.get("sources")
+        expanded_queries = msg.get("expanded_queries")
 
         if role == "user":
             with st.chat_message("user", avatar="👤"):
@@ -359,6 +386,8 @@ def render_chat_messages() -> None:
         else:
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(content)
+                if expanded_queries:
+                    _render_query_expansion(expanded_queries)
                 if sources:
                     _render_message_sources(sources)
 
@@ -392,6 +421,7 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
     full_response = ""
     session_id = st.session_state["session_id"]
     sources = None
+    expanded_queries = None
 
     try:
         for chunk in client.chat_stream(
@@ -400,13 +430,15 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
             model=st.session_state["model"],
             temperature=st.session_state["temperature"],
             use_rag=st.session_state["use_rag"],
+            enable_query_expansion=st.session_state.get("enable_query_expansion", True) if st.session_state["use_rag"] else None,
         ):
             if chunk.get("is_done"):
                 # Cập nhật session_id nếu server trả về mới
                 if chunk.get("session_id"):
                     st.session_state["session_id"] = chunk["session_id"]
-                # Nhận sources được gửi ở chunk kết thúc
+                # Nhận sources và expanded_queries được gửi ở chunk kết thúc
                 sources = chunk.get("sources")
+                expanded_queries = chunk.get("expanded_queries")
                 break
 
             # Cập nhật session_id từ chunk đầu tiên
@@ -421,6 +453,10 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
         # Hiển thị response hoàn chỉnh (bỏ cursor)
         message_placeholder.markdown(full_response)
 
+        # Hiển thị expanded queries nếu có
+        if expanded_queries:
+            _render_query_expansion(expanded_queries)
+
         # Hiển thị sources
         if sources:
             _render_message_sources(sources)
@@ -431,6 +467,7 @@ def _handle_streaming_response(client: APIClient, user_input: str) -> None:
                 "role": "assistant",
                 "content": full_response,
                 "sources": sources,
+                "expanded_queries": expanded_queries,
             })
 
     except Exception as e:
@@ -449,6 +486,7 @@ def _handle_sync_response(client: APIClient, user_input: str) -> None:
                 model=st.session_state["model"],
                 temperature=st.session_state["temperature"],
                 use_rag=st.session_state["use_rag"],
+                enable_query_expansion=st.session_state.get("enable_query_expansion", True) if st.session_state["use_rag"] else None,
             )
 
             # Cập nhật session_id
@@ -457,6 +495,10 @@ def _handle_sync_response(client: APIClient, user_input: str) -> None:
 
             content = response.get("message", {}).get("content", "Không có response.")
             st.markdown(content)
+
+            expanded_queries = response.get("expanded_queries")
+            if expanded_queries:
+                _render_query_expansion(expanded_queries)
 
             sources = response.get("sources")
             if sources:
@@ -467,6 +509,7 @@ def _handle_sync_response(client: APIClient, user_input: str) -> None:
                 "role": "assistant",
                 "content": content,
                 "sources": sources,
+                "expanded_queries": expanded_queries,
             })
 
         except Exception as e:
