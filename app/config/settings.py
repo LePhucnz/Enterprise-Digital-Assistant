@@ -131,6 +131,39 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Query Expansion (RAG)
+    # ------------------------------------------------------------------
+    rag_enable_query_expansion: bool = Field(
+        default=True,
+        description="Bật/tắt kỹ thuật Query Expansion để mở rộng phạm vi tìm kiếm.",
+    )
+    rag_expansion_num_queries: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Số lượng query biến thể được sinh ra để mở rộng tìm kiếm.",
+    )
+    rag_expansion_top_k: int = Field(
+        default=6,
+        gt=0,
+        description="Số lượng document chunks tối đa sau khi fuse kết quả Query Expansion.",
+    )
+    rag_expansion_rrf_k: int = Field(
+        default=60,
+        gt=0,
+        description="Hằng số k trong thuật toán Reciprocal Rank Fusion (RRF).",
+    )
+    rag_relevance_distance_threshold: float = Field(
+        default=0.50,
+        ge=0.0,
+        description=(
+            "Ngưỡng khoảng cách L2 tối đa để một chunk được xem là liên quan. "
+            "Chunks có distance > threshold sẽ bị loại bỏ (không gửi vào LLM). "
+            "Giá trị thấp hơn = strict hơn. Thường: in-domain < 0.4, out-of-domain > 0.5."
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # Paths
     # ------------------------------------------------------------------
     data_dir: str = Field(default="data", description="Thư mục lưu raw data (PDF, DOCX...).")

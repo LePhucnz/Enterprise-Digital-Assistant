@@ -72,6 +72,7 @@ class APIClient:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         use_rag: bool = False,
+        enable_query_expansion: Optional[bool] = None,
     ) -> dict:
         """
         Gửi tin nhắn (non-streaming).
@@ -82,6 +83,7 @@ class APIClient:
             model: Override model.
             temperature: Override temperature.
             use_rag: True để sử dụng RAG.
+            enable_query_expansion: True để mở rộng truy vấn (Query Expansion).
 
         Returns:
             dict: Response từ API.
@@ -92,6 +94,7 @@ class APIClient:
             "model": model,
             "temperature": temperature,
             "use_rag": use_rag,
+            "enable_query_expansion": enable_query_expansion,
         }
         try:
             response = requests.post(
@@ -112,6 +115,7 @@ class APIClient:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         use_rag: bool = False,
+        enable_query_expansion: Optional[bool] = None,
     ) -> Generator[dict, None, None]:
         """
         Gửi tin nhắn với streaming response (SSE).
@@ -122,6 +126,7 @@ class APIClient:
             model: Override model.
             temperature: Override temperature.
             use_rag: True để sử dụng RAG.
+            enable_query_expansion: True để mở rộng truy vấn (Query Expansion).
 
         Yields:
             dict: Mỗi StreamChunk từ server.
@@ -132,6 +137,7 @@ class APIClient:
             "model": model,
             "temperature": temperature,
             "use_rag": use_rag,
+            "enable_query_expansion": enable_query_expansion,
         }
 
         with requests.post(

@@ -123,12 +123,13 @@ async def chat_stream(
         """Generator tạo SSE events từ LLM stream."""
         session_id = None
         try:
-            session_id, stream, sources = await chat_service.astream_chat(
+            session_id, stream, sources, expanded_queries = await chat_service.astream_chat(
                 message=request.message,
                 session_id=request.session_id,
                 model=request.model,
                 temperature=request.temperature,
                 use_rag=request.use_rag,
+                enable_query_expansion=request.enable_query_expansion,
             )
 
             # Gửi session_id ngay lập tức (chunk đầu tiên)
@@ -145,8 +146,14 @@ async def chat_stream(
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
 
-            # Chunk cuối báo hiệu kết thúc, gửi kèm sources tìm được
-            done_chunk = StreamChunk(session_id=session_id, content="", is_done=True, sources=sources)
+            # Chunk cuối báo hiệu kết thúc, gửi kèm sources và expanded_queries tìm được
+            done_chunk = StreamChunk(
+                session_id=session_id,
+                content="",
+                is_done=True,
+                sources=sources,
+                expanded_queries=expanded_queries,
+            )
             yield f"data: {done_chunk.model_dump_json()}\n\n"
 
         except Exception as e:
@@ -201,6 +208,7 @@ async def chat_sync(
             model=request.model,
             temperature=request.temperature,
             use_rag=request.use_rag,
+            enable_query_expansion=request.enable_query_expansion,
         )
     except Exception as e:
         logger.error("Sync chat error: %s", str(e), exc_info=True)

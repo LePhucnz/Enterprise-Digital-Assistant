@@ -189,6 +189,30 @@ class ChatService:
     # Public API
     # ------------------------------------------------------------------
 
+    def _build_out_of_domain_refusal(self, query: str) -> str:
+        """
+        Xây dựng thông điệp từ chối lịch sự khi câu hỏi nằm ngoài phạm vi tài liệu.
+
+        KHÔNG gọi LLM — thông điệp được tạo trực tiếp trong code để tránh hallucination.
+
+        Args:
+            query: Câu hỏi gốc của người dùng.
+
+        Returns:
+            str: Thông điệp từ chối rõ ràng và lịch sự.
+        """
+        return (
+            "⚠️ **Không tìm thấy thông tin liên quan trong tài liệu.**\n\n"
+            f"Câu hỏi của bạn: *'{query}'*\n\n"
+            "Hệ thống đã tìm kiếm trong toàn bộ Knowledge Base nhưng không tìm thấy "
+            "thông tin nào đủ liên quan để trả lời câu hỏi này.\n\n"
+            "**Tài liệu hiện có trong hệ thống:**\n"
+            "- 📄 Dự thảo Quy chế Nội bộ về Quản trị Công ty Bảo Minh\n"
+            "  *(Bao gồm: ĐHĐCĐ, HĐQT, Ban Kiểm soát, cơ cấu tổ chức, thẩm quyền)*\n\n"
+            "💡 **Gợi ý:** Vui lòng upload thêm tài liệu liên quan (ví dụ: Quy chế lao động, "
+            "Nội quy công ty) để được giải đáp đầy đủ hơn."
+        )
+
     def chat(
         self,
         message: str,
@@ -196,21 +220,23 @@ class ChatService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         use_rag: bool = False,
+        enable_query_expansion: Optional[bool] = None,
     ) -> ChatResponse:
         """
         Xử lý chat request (non-streaming).
 
-        Hỗ trợ cả normal chat và RAG chat.
+        Hỗ trợ cả normal chat và RAG chat (kèm Query Expansion).
 
         Args:
-            message:     Tin nhắn từ người dùng.
-            session_id:  Session ID (None → tạo mới).
-            model:       Override model.
-            temperature: Override temperature.
-            use_rag:     True để sử dụng RAG tìm kiếm tài liệu.
+            message:                Tin nhắn từ người dùng.
+            session_id:             Session ID (None → tạo mới).
+            model:                  Override model.
+            temperature:            Override temperature.
+            use_rag:                True để sử dụng RAG tìm kiếm tài liệu.
+            enable_query_expansion: Bật/tắt Query Expansion (None = theo config).
 
         Returns:
-            ChatResponse: Response đầy đủ từ AI (kèm sources nếu dùng RAG).
+            ChatResponse: Response đầy đủ từ AI (kèm sources và expanded_queries nếu dùng RAG).
 
         Raises:
             LLMException:  Nếu có lỗi từ LLM.
@@ -220,10 +246,11 @@ class ChatService:
         used_model = model or self._default_model
 
         logger.info(
-            "ChatService.chat: session=%s | model=%s | RAG=%s | message='%s...'",
+            "ChatService.chat: session=%s | model=%s | RAG=%s | expansion=%s | message='%s...'",
             session_id,
             used_model,
             use_rag,
+            enable_query_expansion,
             message[:60],
         )
 
@@ -238,10 +265,15 @@ class ChatService:
 
             retrieval_result = None
             sources_list = None
+            expanded_queries_list = None
 
             if actual_use_rag:
                 logger.info("ChatService: Running RAG retrieval for message...")
-                retrieval_result = self._retriever_service.retrieve(message, fallback_on_empty=True)
+                retrieval_result = self._retriever_service.retrieve(
+                    message,
+                    fallback_on_empty=True,
+                    enable_query_expansion=enable_query_expansion,
+                )
                 logger.info(
                     "ChatService: Retrieval done in %.3fs. Found %d chunks.",
                     retrieval_result.retrieval_time,
@@ -255,6 +287,28 @@ class ChatService:
                     }
                     for s in retrieval_result.sources
                 ]
+                expanded_queries_list = (
+                    retrieval_result.expanded_queries
+                    if retrieval_result.expanded_queries
+                    else None
+                )
+
+                # === GUARDRAIL: Từ chối lịch sự khi câu hỏi nằm ngoài phạm vi ===
+                # KHÔNG gọi LLM khi context rỗng → tránh hallucination hoàn toàn
+                if retrieval_result.is_empty:
+                    logger.info(
+                        "ChatService.chat: out-of-domain query detected (no relevant chunks). "
+                        "Returning refusal WITHOUT calling LLM. session=%s",
+                        session_id,
+                    )
+                    refusal_msg = self._build_out_of_domain_refusal(message)
+                    return ChatResponse(
+                        session_id=session_id,
+                        message=Message(role=MessageRole.ASSISTANT, content=refusal_msg),
+                        model=used_model,
+                        sources=None,
+                        expanded_queries=retrieval_result.expanded_queries or None,
+                    )
 
                 chain = self._get_rag_chain(model=model, temperature=temperature)
                 raw_response = chain.invoke(
@@ -287,6 +341,7 @@ class ChatService:
                 message=Message(role=MessageRole.ASSISTANT, content=parsed.answer),
                 model=used_model,
                 sources=sources_list,
+                expanded_queries=expanded_queries_list,
             )
 
         except LLMException:
@@ -320,33 +375,37 @@ class ChatService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         use_rag: bool = False,
-    ) -> tuple[str, AsyncGenerator[str, None], Optional[list[dict]]]:
+        enable_query_expansion: Optional[bool] = None,
+    ) -> tuple[str, AsyncGenerator[str, None], Optional[list[dict]], Optional[list[str]]]:
         """
         Xử lý chat request với streaming response.
 
-        Hỗ trợ cả normal chat và RAG chat.
+        Hỗ trợ cả normal chat và RAG chat (kèm Query Expansion).
 
         Args:
-            message:     Tin nhắn từ người dùng.
-            session_id:  Session ID (None → tạo mới).
-            model:       Override model.
-            temperature: Override temperature.
-            use_rag:     True để sử dụng RAG tìm kiếm tài liệu.
+            message:                Tin nhắn từ người dùng.
+            session_id:             Session ID (None → tạo mới).
+            model:                  Override model.
+            temperature:            Override temperature.
+            use_rag:                True để sử dụng RAG tìm kiếm tài liệu.
+            enable_query_expansion: Bật/tắt Query Expansion (None = theo config).
 
         Returns:
-            tuple[str, AsyncGenerator[str, None], Optional[list[dict]]]:
-                - session_id: Session ID đã dùng.
-                - generator:  Async generator yield từng token.
-                - sources:    Danh sách nguồn tài liệu (nếu RAG).
+            tuple[str, AsyncGenerator[str, None], Optional[list[dict]], Optional[list[str]]]:
+                - session_id:       Session ID đã dùng.
+                - generator:        Async generator yield từng token.
+                - sources:          Danh sách nguồn tài liệu (nếu RAG).
+                - expanded_queries: Danh sách truy vấn mở rộng (nếu RAG + Expansion).
         """
         session_id = self._ensure_session_id(session_id)
         used_model = model or self._default_model
 
         logger.info(
-            "ChatService.astream_chat: session=%s | model=%s | RAG=%s | message='%s...'",
+            "ChatService.astream_chat: session=%s | model=%s | RAG=%s | expansion=%s | message='%s...'",
             session_id,
             used_model,
             use_rag,
+            enable_query_expansion,
             message[:60],
         )
 
@@ -360,10 +419,15 @@ class ChatService:
 
         retrieval_result = None
         sources_list = None
+        expanded_queries_list = None
 
         if actual_use_rag:
             logger.info("ChatService: Running RAG retrieval for streaming message...")
-            retrieval_result = self._retriever_service.retrieve(message, fallback_on_empty=True)
+            retrieval_result = self._retriever_service.retrieve(
+                message,
+                fallback_on_empty=True,
+                enable_query_expansion=enable_query_expansion,
+            )
             logger.info(
                 "ChatService: Retrieval done in %.3fs. Found %d chunks.",
                 retrieval_result.retrieval_time,
@@ -377,6 +441,27 @@ class ChatService:
                 }
                 for s in retrieval_result.sources
             ]
+            expanded_queries_list = (
+                retrieval_result.expanded_queries
+                if retrieval_result.expanded_queries
+                else None
+            )
+
+        # === GUARDRAIL cho streaming: Từ chối khi câu hỏi nằm ngoài phạm vi ===
+        # KHÔNG gọi LLM — generator trả về thông điệp từ chối trực tiếp
+        if actual_use_rag and retrieval_result is not None and retrieval_result.is_empty:
+            logger.info(
+                "ChatService.astream_chat: out-of-domain query detected (no relevant chunks). "
+                "Returning refusal stream WITHOUT calling LLM. session=%s",
+                session_id,
+            )
+            refusal_msg = self._build_out_of_domain_refusal(message)
+
+            async def _refusal_stream() -> AsyncGenerator[str, None]:
+                """Stream thông điệp từ chối mà không gọi LLM."""
+                yield refusal_msg
+
+            return session_id, _refusal_stream(), None, retrieval_result.expanded_queries or None
 
         async def _timed_stream() -> AsyncGenerator[str, None]:
             """Wrapper stream có log elapsed time khi kết thúc."""
@@ -406,7 +491,7 @@ class ChatService:
                     elapsed,
                 )
 
-        return session_id, _timed_stream(), sources_list
+        return session_id, _timed_stream(), sources_list, expanded_queries_list
 
 
     def get_history(self, session_id: str) -> ChatHistoryResponse:

@@ -26,8 +26,9 @@ from app.documents.document_service import DocumentService
 from app.documents.repository import DocumentRepository
 from app.memory.memory_manager import InMemoryBackend, MemoryManager
 from app.rag.embedding_service import EmbeddingService
-from app.rag.vector_store_service import VectorStoreService
+from app.rag.query_expander import QueryExpander
 from app.rag.retriever_service import RetrieverService
+from app.rag.vector_store_service import VectorStoreService
 from app.services.chat_service import ChatService
 
 logger = logging.getLogger(__name__)
@@ -114,15 +115,30 @@ def get_vector_store_service() -> VectorStoreService:
 
 
 @lru_cache(maxsize=1)
+def get_query_expander() -> QueryExpander:
+    """
+    Trả về singleton QueryExpander instance (dùng cho Query Expansion trong RAG).
+
+    Returns:
+        QueryExpander: Singleton instance.
+    """
+    logger.info("Creating QueryExpander singleton.")
+    return QueryExpander()
+
+
+@lru_cache(maxsize=1)
 def get_retriever_service() -> RetrieverService:
     """
     Trả về singleton RetrieverService instance.
 
     Returns:
-        RetrieverService: Singleton instance, dùng chung VectorStoreService.
+        RetrieverService: Singleton instance, dùng chung VectorStoreService và QueryExpander.
     """
     logger.info("Creating RetrieverService singleton.")
-    return RetrieverService(vector_store_service=get_vector_store_service())
+    return RetrieverService(
+        vector_store_service=get_vector_store_service(),
+        query_expander=get_query_expander(),
+    )
 
 
 @lru_cache(maxsize=1)

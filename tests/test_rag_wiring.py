@@ -113,6 +113,7 @@ class TestRAGWiring(unittest.TestCase):
         self.mock_retriever.retrieve.assert_called_once_with(
             "Tìm quy trình nghỉ phép",
             fallback_on_empty=True,
+            enable_query_expansion=None,
         )
 
         # Kiểm tra RAGChain được gọi với context
@@ -161,19 +162,16 @@ class TestRAGWiring(unittest.TestCase):
         """
         Test case: use_rag=True nhưng không tìm thấy tài liệu nào (retrieval rỗng).
 
-        Kỳ vọng: Vẫn gọi RAGChain với empty context thông báo, không raise lỗi, trả về sources trống.
+        Kỳ vọng MỚI (sau guardrail fix): KHÔNG gọi LLM — ChatService trả về thông điệp
+        từ chối lịch sự trực tiếp mà không gọi RAGChain.invoke(), tránh hallucination.
         """
-        # Giả lập kết quả rỗng
+        # Giả lập kết quả rỗng (is_empty=True)
         self.mock_retriever.retrieve.return_value = RetrievalResult(
             documents=[],
             sources=[],
             context="Không có tài liệu liên quan được tìm thấy.",
             retrieval_time=0.05,
             is_empty=True,
-        )
-
-        self.mock_rag_chain.invoke.return_value = (
-            "Tôi không tìm thấy thông tin này trong tài liệu."
         )
 
         response = self.chat_service.chat(
@@ -185,17 +183,13 @@ class TestRAGWiring(unittest.TestCase):
         # Kiểm tra retriever được gọi
         self.mock_retriever.retrieve.assert_called_once()
 
-        # Kiểm tra RAGChain vẫn được gọi với context thông báo rỗng
-        self.mock_rag_chain.invoke.assert_called_once_with(
-            input_text="Chính sách lương 2026",
-            context="Không có tài liệu liên quan được tìm thấy.",
-            session_id="session-test-4",
-        )
+        # LLM/RAGChain KHÔNG được gọi khi context rỗng (guardrail chặn)
+        self.mock_rag_chain.invoke.assert_not_called()
 
-        self.assertEqual(
-            response.message.content, "Tôi không tìm thấy thông tin này trong tài liệu."
-        )
-        self.assertEqual(response.sources, [])
+        # Response phải chứa thông điệp từ chối (không phải nội dung bịa đặt)
+        self.assertIn("Không tìm thấy thông tin", response.message.content)
+        # Sources là None (không có tài liệu nào)
+        self.assertIsNone(response.sources)
 
 
 if __name__ == "__main__":
