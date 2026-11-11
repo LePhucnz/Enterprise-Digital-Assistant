@@ -436,10 +436,30 @@ def main() -> None:
     # ------------------------------------------------------------------
     st.markdown("""
     <style>
-        /* Ẩn bớt Streamlit menu thừa */
+        /* Ẩn bớt Streamlit menu và footer thừa */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
+        [data-testid="stAppDeployButton"] {display: none !important;}
+
+        /* Giữ header trong suốt để không che khuất nội dung */
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+        }
+
+        /* Đảm bảo nút mũi tên mở lại thanh bên luôn hiển thị rõ ràng khi thu gọn */
+        [data-testid="stSidebarCollapsedControl"] {
+            visibility: visible !important;
+            display: flex !important;
+            z-index: 99999 !important;
+            background: rgba(37, 99, 235, 0.1) !important;
+            border: 1px solid rgba(37, 99, 235, 0.2) !important;
+            border-radius: 8px !important;
+            margin-top: 8px !important;
+            margin-left: 8px !important;
+        }
+        [data-testid="stSidebarCollapsedControl"]:hover {
+            background: rgba(37, 99, 235, 0.2) !important;
+        }
 
         /* Header ứng dụng */
         .main-header {
