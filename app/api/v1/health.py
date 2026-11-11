@@ -25,6 +25,9 @@ class HealthResponse(BaseModel):
     version: str
     ollama_connected: bool
     ollama_model: str
+    active_provider: str = "ollama"
+    openai_configured: bool = False
+    gemini_configured: bool = False
     details: dict
 
 
@@ -34,6 +37,7 @@ async def health_check() -> HealthResponse:
     Kiểm tra trạng thái ứng dụng.
 
     - Kiểm tra kết nối đến Ollama server.
+    - Kiểm tra cấu hình API keys (OpenAI, Gemini).
     - Trả về thông tin version và cấu hình.
 
     Returns:
@@ -49,7 +53,12 @@ async def health_check() -> HealthResponse:
     except Exception as e:
         logger.warning("Ollama health check failed: %s", str(e))
 
-    status = "healthy" if ollama_connected else "degraded"
+    openai_configured = bool(settings.openai_api_key)
+    gemini_configured = bool(settings.gemini_api_key or settings.google_api_key)
+
+    # Status: healthy nếu có ít nhất 1 backend hoạt động
+    is_healthy = ollama_connected or openai_configured or gemini_configured
+    status = "healthy" if is_healthy else "degraded"
 
     return HealthResponse(
         status=status,
@@ -57,8 +66,14 @@ async def health_check() -> HealthResponse:
         version=settings.app_version,
         ollama_connected=ollama_connected,
         ollama_model=settings.ollama_model,
+        active_provider=settings.llm_provider,
+        openai_configured=openai_configured,
+        gemini_configured=gemini_configured,
         details={
             "ollama_url": settings.ollama_base_url,
+            "llm_provider": settings.llm_provider,
+            "openai_configured": openai_configured,
+            "gemini_configured": gemini_configured,
             "debug_mode": settings.debug,
             "memory_type": settings.memory_type,
         },

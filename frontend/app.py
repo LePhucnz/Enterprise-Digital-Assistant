@@ -78,10 +78,25 @@ def render_sidebar(client: APIClient) -> None:
                 unsafe_allow_html=True,
             )
             ollama_ok = health.get("ollama_connected", False)
-            if ollama_ok:
-                st.success(f"🟢 Ollama: {health.get('ollama_model', 'unknown')}", icon=None)
-            else:
-                st.error("🔴 Ollama: Không kết nối được")
+            openai_ok = health.get("openai_configured", False)
+            gemini_ok = health.get("gemini_configured", False)
+
+            status_cols = st.columns(3)
+            with status_cols[0]:
+                if ollama_ok:
+                    st.caption("🟢 **Ollama**")
+                else:
+                    st.caption("⚪ Ollama")
+            with status_cols[1]:
+                if openai_ok:
+                    st.caption("🟢 **OpenAI**")
+                else:
+                    st.caption("⚪ OpenAI")
+            with status_cols[2]:
+                if gemini_ok:
+                    st.caption("🟢 **Gemini**")
+                else:
+                    st.caption("⚪ Gemini")
         else:
             st.markdown(
                 '<span class="status-offline"></span> **API Offline**',
@@ -91,14 +106,47 @@ def render_sidebar(client: APIClient) -> None:
 
         st.divider()
 
-        # Model Selection
-        st.markdown("### 🤖 Model")
+        # Provider & Model Selection
+        st.markdown("### 🤖 Nguồn & Mô hình (LLM)")
+        provider_mode = st.radio(
+            "Chế độ chạy",
+            options=["🏠 Local (Ollama)", "🔑 API Key (OpenAI / OpenRouter)", "✨ API Key (Google Gemini)"],
+            index=0,
+            key="provider_radio",
+            help="Chạy offline bằng Ollama hoặc dùng Cloud API Key",
+        )
+
+        if "Local" in provider_mode:
+            model_options = [
+                "qwen2.5:latest",
+                "qwen2.5:7b",
+                "llama3.2:latest",
+                "mistral:latest",
+            ]
+            help_text = "Model chạy cục bộ qua Ollama (offline, bảo mật cao)"
+        elif "Google" in provider_mode:
+            model_options = [
+                "gemini-3.8-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-flash-latest",
+                "gemini-2.5-pro",
+            ]
+            help_text = "Google Gemini qua API Key (tốc độ cao, context lớn)"
+        else:
+            model_options = [
+                "openai/gpt-4o-mini",
+                "openai/gpt-4o",
+                "anthropic/claude-3.5-sonnet",
+                "deepseek/deepseek-chat",
+            ]
+            help_text = "OpenAI / OpenRouter qua API Key"
+
         model = st.selectbox(
             "Chọn model",
-            options=["qwen2.5:latest", "qwen2.5:7b", "llama3.2:latest", "mistral:latest"],
+            options=model_options,
             index=0,
-            key="model_select",
-            help="Model LLM để sử dụng (phải có trong Ollama)",
+            key=f"model_select_{provider_mode}",
+            help=help_text,
         )
         st.session_state["model"] = model
 

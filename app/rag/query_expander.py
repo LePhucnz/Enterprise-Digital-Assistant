@@ -15,9 +15,9 @@ from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
-from langchain_ollama import ChatOllama
 
 from app.config.settings import get_settings
+from app.core.llm_factory import get_chat_model
 from app.prompts import get_query_expansion_prompt_template
 
 logger = logging.getLogger(__name__)
@@ -79,13 +79,9 @@ class QueryExpander:
             self._llm = llm
         else:
             _model = model or settings.ollama_model
-            self._llm = ChatOllama(
+            self._llm = get_chat_model(
                 model=_model,
-                base_url=settings.ollama_base_url,
                 temperature=temperature,
-                top_p=0.9,
-                num_predict=512,
-                num_ctx=settings.llm_context_window,
             )
 
         self._prompt = get_query_expansion_prompt_template()

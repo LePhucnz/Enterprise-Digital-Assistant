@@ -157,17 +157,36 @@ class ChatOutputParser:
             documents=documents,
         )
 
-    def parse_streaming_chunk(self, chunk: str) -> str:
+    def parse_streaming_chunk(self, chunk: Any) -> str:
         """
         Xử lý một chunk trong streaming response.
 
-        Hiện tại chỉ strip whitespace đầu/cuối.
-        Có thể mở rộng để filter hoặc transform chunk.
+        Hỗ trợ cả chuỗi văn bản (Ollama, OpenAI) và cấu trúc danh sách dict (Gemini).
 
         Args:
             chunk: Một token/chunk từ LLM stream.
 
         Returns:
-            str: Chunk đã được xử lý.
+            str: Chuỗi văn bản đã trích xuất từ chunk.
         """
-        return chunk
+        if chunk is None:
+            return ""
+
+        # Nếu là AIMessageChunk hoặc đối tượng có .content
+        if hasattr(chunk, "content"):
+            return self.parse_streaming_chunk(chunk.content)
+
+        # Xử lý trường hợp Gemini trả về list các dict [{'type': 'text', 'text': ...}]
+        if isinstance(chunk, list):
+            parts = []
+            for item in chunk:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(item.get("text", ""))
+                elif isinstance(item, str):
+                    parts.append(item)
+            return "".join(parts)
+
+        if isinstance(chunk, str):
+            return chunk
+
+        return str(chunk)

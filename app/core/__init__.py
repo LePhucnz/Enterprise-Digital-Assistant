@@ -29,11 +29,15 @@ from app.core.exceptions import (
     SessionNotFoundError,
     ValidationException,
 )
+from app.core.llm_factory import get_chat_model, infer_provider
 from app.core.output_parser import ChatOutputParser, ParsedResponse, ResponseMetadata
 
 __all__ = [
     # Base
     "BaseChain",
+    # LLM Factory
+    "get_chat_model",
+    "infer_provider",
     # Exceptions
     "AppException",
     "LLMException",
