@@ -569,80 +569,65 @@ def main() -> None:
     """, unsafe_allow_html=True)
 
     # ------------------------------------------------------------------
-    # JavaScript: Nút floating luôn hiện khi sidebar đóng
-    # Dùng st.components.v1.html + window.parent để thoát khỏi iframe
+    # JavaScript: Nút floating toggle sidebar — LUÔN hiển thị
+    # st.components.v1.html đảm bảo script thực sự chạy (không bị strip)
     # ------------------------------------------------------------------
     st_components.html("""
     <script>
     (function() {
-        var doc = window.parent.document;
+        // Thử truy cập window.parent — cùng origin nên được phép
+        var doc;
+        try { doc = window.parent.document; } catch(e) { return; }
 
-        // Inject style vào parent document (chỉ 1 lần)
-        if (!doc.getElementById('eda-sidebar-btn-style')) {
-            var s = doc.createElement('style');
-            s.id = 'eda-sidebar-btn-style';
-            s.innerHTML = [
-                '#eda-open-sidebar-btn {',
-                '  position: fixed !important;',
-                '  top: 10px !important;',
-                '  left: 10px !important;',
-                '  z-index: 2147483647 !important;',
-                '  background: #2563eb !important;',
-                '  color: #fff !important;',
-                '  border: none !important;',
-                '  border-radius: 8px !important;',
-                '  padding: 5px 11px !important;',
-                '  font-size: 20px !important;',
-                '  line-height: 1 !important;',
-                '  cursor: pointer !important;',
-                '  box-shadow: 0 4px 14px rgba(37,99,235,0.5) !important;',
-                '  display: none;',
-                '}',
-                '#eda-open-sidebar-btn:hover { background: #1d4ed8 !important; transform: scale(1.08); }'
-            ].join('');
-            doc.head.appendChild(s);
+        // Inject CSS cho nút floating vào parent <head> (chỉ 1 lần)
+        if (!doc.getElementById('eda-toggle-btn-css')) {
+            var style = doc.createElement('style');
+            style.id = 'eda-toggle-btn-css';
+            style.textContent =
+                '#eda-toggle-btn {'
+                + '  position: fixed !important;'
+                + '  top: 12px !important;'
+                + '  left: 12px !important;'
+                + '  z-index: 2147483647 !important;'
+                + '  background: #2563eb !important;'
+                + '  color: #fff !important;'
+                + '  border: none !important;'
+                + '  border-radius: 8px !important;'
+                + '  padding: 4px 10px 5px !important;'
+                + '  font-size: 22px !important;'
+                + '  line-height: 1.2 !important;'
+                + '  cursor: pointer !important;'
+                + '  box-shadow: 0 3px 10px rgba(37,99,235,0.45) !important;'
+                + '  display: block !important;'
+                + '  opacity: 1 !important;'
+                + '}'
+                + '#eda-toggle-btn:hover {'
+                + '  background: #1d4ed8 !important;'
+                + '  transform: scale(1.1) !important;'
+                + '}';
+            doc.head.appendChild(style);
         }
 
-        // Tạo nút floating nếu chưa có
-        if (!doc.getElementById('eda-open-sidebar-btn')) {
+        // Tạo nút nếu chưa có (chỉ 1 lần, tồn tại xuyên suốt)
+        if (!doc.getElementById('eda-toggle-btn')) {
             var btn = doc.createElement('button');
-            btn.id = 'eda-open-sidebar-btn';
-            btn.title = 'Mo thanh ben';
+            btn.id = 'eda-toggle-btn';
+            btn.title = 'Mo / Dong thanh ben';
             btn.textContent = '\u00BB';
-            btn.onclick = function() {
-                var expandBtn = doc.querySelector('[data-testid="stExpandSidebarButton"]') ||
-                                doc.querySelector('button[aria-label="Expand sidebar"]');
-                if (expandBtn) { expandBtn.click(); }
-            };
+            btn.addEventListener('click', function() {
+                // Click nút gốc của Streamlit để toggle sidebar
+                var nativeBtn =
+                    doc.querySelector('[data-testid="stExpandSidebarButton"]') ||
+                    doc.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
+                    doc.querySelector('button[aria-label="Expand sidebar"]') ||
+                    doc.querySelector('button[aria-label="Collapse sidebar"]');
+                if (nativeBtn) nativeBtn.click();
+            });
             doc.body.appendChild(btn);
         }
-
-        // Kiểm tra trạng thái sidebar và show/hide floating button
-        function checkSidebar() {
-            var floatBtn = doc.getElementById('eda-open-sidebar-btn');
-            if (!floatBtn) return;
-            var sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            var isClosed = false;
-            if (!sidebar) {
-                isClosed = true;
-            } else {
-                var w = sidebar.getBoundingClientRect().width;
-                isClosed = (w < 50);
-            }
-            floatBtn.style.display = isClosed ? 'block' : 'none';
-        }
-
-        // MutationObserver + polling 400ms để không bỏ sót
-        var observer = new MutationObserver(checkSidebar);
-        observer.observe(doc.body, {
-            childList: true, subtree: true,
-            attributes: true, attributeFilter: ['style', 'class', 'aria-expanded']
-        });
-        checkSidebar();
-        setInterval(checkSidebar, 400);
     })();
     </script>
-    """, height=0)
+    """, height=1, scrolling=False)
 
     # ------------------------------------------------------------------
     init_session_state()
